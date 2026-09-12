@@ -114,8 +114,18 @@ Once you provide a URL, you get a full menu to:
 	}
 	repoCmd.Flags().StringVarP(&repoURLFlag, "url", "u", "", "GitHub repository URL to clone/manage")
 
+	// ─── ui subcommand ────────────────────────────────────────────────────────
+	var uiCmd = &cobra.Command{
+		Use:   "ui",
+		Short: "Start the CommandSpeak local UI (history & settings)",
+		Run: func(cmd *cobra.Command, args []string) {
+			runUIServer()
+		},
+	}
+
 	rootCmd.AddCommand(changeCmd)
 	rootCmd.AddCommand(repoCmd)
+	rootCmd.AddCommand(uiCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -561,5 +571,51 @@ func processSentence(sentence string) {
 		if !intent.DryRun && !globalDryRun {
 			color.Green("✔  Done!")
 		}
+	}
+}
+
+// =============================================================================
+// UI LAUNCHER
+// =============================================================================
+
+func runUIServer() {
+	color.Cyan("\nStarting CommandSpeak Frontend...")
+
+	// Try starting PHP server
+	phpCmd := exec.Command("php", "-S", "localhost:8080")
+	phpCmd.Stdout = os.Stdout
+	phpCmd.Stderr = os.Stderr
+
+	err := phpCmd.Start()
+	if err != nil {
+		color.Yellow("\n[WARNING] PHP not found or failed to start.")
+		color.Yellow("Falling back to static mode (localStorage).")
+		color.HiBlack("Opening index.html directly...")
+		openBrowser("index.html")
+		return
+	}
+
+	color.Green("PHP is installed. Private SQLite backend running on localhost:8080!")
+	color.Yellow("Press Ctrl+C in this terminal to stop the server.\n")
+
+	openBrowser("http://localhost:8080/index.html")
+	phpCmd.Wait()
+}
+
+func openBrowser(url string) {
+	var err error
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+	if err != nil {
+		color.Red("Could not open browser automatically: %v", err)
+		color.White("Please open: %s", url)
 	}
 }
