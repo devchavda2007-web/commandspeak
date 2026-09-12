@@ -58,19 +58,35 @@ For example:
 	}
 
 	// --- repo subcommand ---
+	var repoURL string
 	var repoCmd = &cobra.Command{
-		Use:   "repo",
-		Short: "Manage any GitHub repository (clone, browse files, push changes)",
-		Long: `The repo command lets you input any GitHub repo URL and interact with it:
-  - Clone / download it to your machine
-  - List its files
-  - Open and view a file
-  - Edit a file directly in the terminal
-  - Commit and push your changes back`,
+		Use:   "repo [github-url]",
+		Short: "Manage any GitHub repository (clone, browse, edit, push)",
+		Long: `The repo command lets you input any GitHub repo URL and interact with it.
+
+You can provide the URL in 3 ways:
+  1. As an argument:  commandspeak repo https://github.com/user/project
+  2. As a flag:       commandspeak repo --url https://github.com/user/project
+  3. Interactively:   commandspeak repo   (then type or paste the URL when asked)
+
+Once connected you can:
+  - List all files and folders
+  - View any file's contents
+  - Edit files (opens Notepad on Windows, nano on Linux/Mac)
+  - Commit and push changes back
+  - Pull latest changes
+  - Show git status
+  - Switch to a different remote repo`,
+		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			runRepoManager()
+			// Priority: argument > --url flag > interactive prompt
+			if len(args) == 1 {
+				repoURL = args[0]
+			}
+			runRepoManager(repoURL)
 		},
 	}
+	repoCmd.Flags().StringVarP(&repoURL, "url", "u", "", "GitHub repository URL")
 
 	rootCmd.AddCommand(changeCmd)
 	rootCmd.AddCommand(repoCmd)
@@ -85,7 +101,7 @@ For example:
 // REPO MANAGER
 // ─────────────────────────────────────────────────────────────────────────────
 
-func runRepoManager() {
+func runRepoManager(initialURL string) {
 	reader := bufio.NewReader(os.Stdin)
 
 	color.Cyan("╔══════════════════════════════════════════╗")
@@ -93,11 +109,18 @@ func runRepoManager() {
 	color.Cyan("╚══════════════════════════════════════════╝")
 	fmt.Println()
 
-	// Step 1: Get the repo URL
-	color.Yellow("Enter the GitHub repo URL you want to work with:")
-	fmt.Print("  URL: ")
-	repoURL, _ := reader.ReadString('\n')
-	repoURL = strings.TrimSpace(repoURL)
+	// ── Step 1: Determine the repo URL ──────────────────────────────────────
+	repoURL := initialURL
+
+	if repoURL == "" {
+		color.Yellow("Enter the GitHub repo URL you want to work with:")
+		color.HiBlack("  (example: https://github.com/torvalds/linux)")
+		fmt.Print("  URL > ")
+		input, _ := reader.ReadString('\n')
+		repoURL = strings.TrimSpace(input)
+	} else {
+		color.Green("Using repo: %s", repoURL)
+	}
 
 	if repoURL == "" {
 		color.Red("No URL entered. Exiting.")
@@ -373,7 +396,13 @@ func runInteractive() {
 			break
 		}
 		if sentence == "repo" {
-			runRepoManager()
+			runRepoManager("")
+			continue
+		}
+		// Support: `repo https://github.com/user/project` in interactive mode
+		if strings.HasPrefix(sentence, "repo ") {
+			inlineURL := strings.TrimSpace(strings.TrimPrefix(sentence, "repo "))
+			runRepoManager(inlineURL)
 			continue
 		}
 		if sentence == "" {
