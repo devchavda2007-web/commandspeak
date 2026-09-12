@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"%CLAUDE_PROJECT_DIR%\\cyhi-logs\\bin\\cyhi\" session-start",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"%CLAUDE_PROJECT_DIR%\\cyhi-logs\\bin\\cyhi\" prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py -3 \"%CLAUDE_PROJECT_DIR%\\cyhi-logs\\bin\\cyhi\" session-end",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

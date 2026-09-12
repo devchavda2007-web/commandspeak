@@ -1,0 +1,2 @@
+# CYHI: teammates' log lines merge instead of conflicting
+cyhi-logs/**/*.jsonl merge=union

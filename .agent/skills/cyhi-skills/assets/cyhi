@@ -1,0 +1,653 @@
+#!/usr/bin/env python3
+"""cyhi - Can You Hack It? hackathon session logger.
+
+Append-only JSONL turn log + shared team state + a handoff note.
+Stdlib only, Python 3.8+. Any agent that can run a command can comply.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from collections import Counter, OrderedDict
+from datetime import datetime, timezone
+from pathlib import Path
+
+LOGDIR = "cyhi-logs"
+TYPES = ("code", "debug", "explanation", "architecture", "research", "writing", "other")
+
+HANDOFF_TEMPLATE = """# Handoff
+
+_Not written yet. The agent updates this with `cyhi handoff`._
+
+## Current state
+
+## Works
+
+## Broken
+
+## Next 3 things
+
+## Decisions (and why)
+
+## Don't retry
+"""
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def slug(s: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9._-]+", "-", (s or "").strip()).strip("-._")
+    return (s or "unknown").lower()[:40]
+
+
+def git_config(key: str):
+    try:
+        out = subprocess.run(["git", "config", "--get", key],
+                             capture_output=True, text=True, timeout=3)
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+
+def stdin_text() -> str:
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return ""
+        return sys.stdin.read()
+    except Exception:
+        return ""
+
+
+def stdin_json() -> dict:
+    raw = stdin_text().strip()
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
+
+
+def find_root(start=None) -> Path:
+    env = os.environ.get("CYHI_ROOT")
+    if env:
+        return Path(env).expanduser().resolve()
+    cur = (Path(start) if start else Path.cwd()).resolve()
+    for d in [cur, *cur.parents]:
+        if (d / LOGDIR).is_dir():
+            return d
+    return cur
+
+
+class Ctx:
+    def __init__(self, root: Path):
+        self.root = root
+        self.logs = root / LOGDIR
+        self.turns = self.logs / "turns"
+        self.local = self.logs / ".local"
+        self.state_path = self.logs / "state.json"
+        self.handoff_path = root / "HANDOFF.md"
+
+    def ensure(self):
+        self.turns.mkdir(parents=True, exist_ok=True)
+        self.local.mkdir(parents=True, exist_ok=True)
+
+    # -- state -------------------------------------------------------
+    def state(self) -> dict:
+        try:
+            return json.loads(self.state_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def save_state(self, st: dict):
+        self.ensure()
+        tmp = self.logs / "state.json.tmp"
+        tmp.write_text(json.dumps(st, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        tmp.replace(self.state_path)
+
+    # -- identity ----------------------------------------------------
+    def member(self) -> str:
+        v = os.environ.get("CYHI_MEMBER")
+        if v and v.strip():
+            return slug(v)
+        f = self.local / "member"
+        if f.exists():
+            v = f.read_text(encoding="utf-8").strip()
+            if v:
+                return slug(v)
+        v = git_config("user.email") or os.environ.get("USER") or "unknown"
+        return slug(v.split("@")[0])
+
+    def set_member(self, value: str) -> str:
+        self.ensure()
+        v = slug(value)
+        (self.local / "member").write_text(v + "\n", encoding="utf-8")
+        return v
+
+    # -- session -----------------------------------------------------
+    def session(self, explicit=None) -> str:
+        for v in (explicit, os.environ.get("CYHI_SESSION")):
+            if v and v.strip():
+                return slug(v)[:12]
+        f = self.local / "session"
+        if f.exists():
+            v = f.read_text(encoding="utf-8").strip()
+            if v:
+                return v
+        return self.set_session(datetime.now().strftime("%m%d-%H%M"))
+
+    def set_session(self, value: str) -> str:
+        self.ensure()
+        v = slug(value)[:12]
+        (self.local / "session").write_text(v + "\n", encoding="utf-8")
+        return v
+
+    # -- turn counter (per session, machine-local) -------------------
+    def _turn_file(self, session: str) -> Path:
+        return self.local / ("turn-" + session)
+
+    def bump_turn(self, session: str) -> int:
+        f = self._turn_file(session)
+        n = 0
+        if f.exists():
+            try:
+                n = int(f.read_text(encoding="utf-8").strip())
+            except Exception:
+                n = 0
+        n += 1
+        self.ensure()
+        f.write_text(str(n), encoding="utf-8")
+        return n
+
+    def _pending_file(self, session: str) -> Path:
+        return self.local / ("pending-" + session)
+
+    def take_pending(self, session: str):
+        f = self._pending_file(session)
+        if not f.exists():
+            return None
+        try:
+            n = int(f.read_text(encoding="utf-8").strip())
+        except Exception:
+            n = None
+        try:
+            f.unlink()
+        except Exception:
+            pass
+        return n
+
+    def put_pending(self, session: str, turn: int):
+        self.ensure()
+        self._pending_file(session).write_text(str(turn), encoding="utf-8")
+
+    # -- log ---------------------------------------------------------
+    def append(self, rec: dict):
+        self.ensure()
+        path = self.turns / (rec["member"] + ".jsonl")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    def all_records(self):
+        recs = []
+        if not self.turns.is_dir():
+            return recs
+        for p in sorted(self.turns.glob("*.jsonl")):
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            for line in text.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(r, dict):
+                    recs.append(r)
+        recs.sort(key=lambda r: (str(r.get("ts", "")), str(r.get("member", "")),
+                                 int(r.get("turn", 0) or 0)))
+        return recs
+
+
+def pair_turns(recs):
+    """Join prompt and action records on (member, session, turn)."""
+    out = OrderedDict()
+    for r in recs:
+        key = (r.get("member"), r.get("session"), r.get("turn"))
+        slot = out.setdefault(key, {"prompt": None, "action": None, "ts": r.get("ts")})
+        slot[r.get("kind", "action") if r.get("kind") in ("prompt", "action") else "action"] = r
+        if r.get("ts") and (not slot["ts"] or r["ts"] < slot["ts"]):
+            slot["ts"] = r["ts"]
+    return out
+
+
+# ====================== commands ==================================
+
+def cmd_init(ctx: Ctx, args):
+    ctx.ensure()
+    st = ctx.state()
+    if args.team:
+        st["team"] = args.team
+    if args.track:
+        st["track"] = args.track
+    if args.member:
+        st["members"] = sorted(set(st.get("members", []) + [ctx.set_member(args.member)]))
+    else:
+        st["members"] = sorted(set(st.get("members", []) + [ctx.member()]))
+    st.setdefault("created", now_iso())
+    st["updated"] = now_iso()
+    ctx.save_state(st)
+
+    ga = ctx.root / ".gitattributes"
+    rule = "cyhi-logs/**/*.jsonl merge=union"
+    existing = ga.read_text(encoding="utf-8") if ga.exists() else ""
+    if rule not in existing:
+        with open(ga, "a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write("# CYHI: teammates' log lines merge instead of conflicting\n" + rule + "\n")
+
+    gi = ctx.root / ".gitignore"
+    ig = "cyhi-logs/.local/"
+    existing = gi.read_text(encoding="utf-8") if gi.exists() else ""
+    if ig not in existing:
+        with open(gi, "a", encoding="utf-8") as fh:
+            if existing and not existing.endswith("\n"):
+                fh.write("\n")
+            fh.write(ig + "\n")
+
+    if not ctx.handoff_path.exists():
+        ctx.handoff_path.write_text(HANDOFF_TEMPLATE, encoding="utf-8")
+
+    print("cyhi initialised at " + str(ctx.logs))
+    print("  member:  " + ctx.member())
+    print("  team:    " + str(st.get("team") or "(not set - ask the participant)"))
+    print("  track:   " + str(st.get("track") or "(not set - ask the participant)"))
+    return 0
+
+
+def cmd_whoami(ctx: Ctx, args):
+    if args.set:
+        ctx.set_member(args.set)
+        st = ctx.state()
+        st["members"] = sorted(set(st.get("members", []) + [ctx.member()]))
+        st["updated"] = now_iso()
+        ctx.save_state(st)
+    print(json.dumps({"member": ctx.member(), "session": ctx.session(),
+                      "root": str(ctx.root)}, indent=2))
+    return 0
+
+
+def cmd_prompt(ctx: Ctx, args):
+    """Append a prompt record. Stdin = Claude Code UserPromptSubmit hook JSON."""
+    raw = "" if args.text else stdin_text()
+    payload = {}
+    if raw.strip():
+        try:
+            parsed = json.loads(raw)
+            payload = parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            payload = {}
+    # If stdin was not valid JSON, keep the raw text rather than lose the prompt.
+    text = args.text or payload.get("user_prompt") or payload.get("prompt") or raw.strip()
+    if not text.strip():
+        return 0
+    session = ctx.session(payload.get("session_id") or args.session)
+    turn = ctx.bump_turn(session)
+    ctx.put_pending(session, turn)
+    st = ctx.state()
+    ctx.append({
+        "kind": "prompt", "ts": now_iso(), "session": session, "turn": turn,
+        "member": ctx.member(), "track": st.get("track"), "text": text,
+    })
+    return 0
+
+
+def cmd_log(ctx: Ctx, args):
+    """Append an action record describing what the agent just did."""
+    payload = stdin_json()
+    summary = args.summary or payload.get("summary") or ""
+    otype = (args.type or payload.get("type") or "other").lower()
+    if otype not in TYPES:
+        otype = "other"
+    files = args.files.split(",") if args.files else payload.get("files") or []
+    files = [f.strip() for f in files if str(f).strip()]
+    prompt_text = args.prompt or payload.get("prompt") or ""
+
+    if not summary.strip():
+        print("cyhi log: --summary is required", file=sys.stderr)
+        return 1
+
+    session = ctx.session(args.session)
+    turn = ctx.take_pending(session)
+    if turn is None:
+        turn = ctx.bump_turn(session)
+        if prompt_text.strip():
+            st0 = ctx.state()
+            ctx.append({
+                "kind": "prompt", "ts": now_iso(), "session": session, "turn": turn,
+                "member": ctx.member(), "track": st0.get("track"), "text": prompt_text,
+            })
+
+    st = ctx.state()
+    ctx.append({
+        "kind": "action", "ts": now_iso(), "session": session, "turn": turn,
+        "member": ctx.member(), "track": st.get("track"),
+        "type": otype, "summary": summary.strip(), "files": files,
+    })
+    print("logged turn " + str(turn) + " (" + otype + ") as " + ctx.member())
+    return 0
+
+
+def cmd_handoff(ctx: Ctx, args):
+    body = args.text or stdin_text()
+    if not body.strip():
+        print("cyhi handoff: pipe the handoff body on stdin", file=sys.stderr)
+        return 1
+    st = ctx.state()
+    header = (
+        "# Handoff - " + str(st.get("team") or "team") + "\n\n"
+        "> Updated " + now_iso() + " by " + ctx.member()
+        + " (session " + ctx.session() + ", track " + str(st.get("track") or "?") + ")\n"
+        "> Read this first. The full log is cyhi-logs/session.md.\n\n"
+    )
+    ctx.handoff_path.write_text(header + body.strip() + "\n", encoding="utf-8")
+    print("wrote " + str(ctx.handoff_path))
+    return 0
+
+
+def cmd_render(ctx: Ctx, args):
+    recs = ctx.all_records()
+    st = ctx.state()
+    pairs = pair_turns(recs)
+
+    by_member = Counter()
+    by_type = Counter()
+    unlogged = 0
+    for slot in pairs.values():
+        if slot["prompt"]:
+            by_member[slot["prompt"].get("member", "?")] += 1
+        elif slot["action"]:
+            by_member[slot["action"].get("member", "?")] += 1
+        if slot["action"]:
+            by_type[slot["action"].get("type", "other")] += 1
+        else:
+            unlogged += 1
+
+    out = []
+    out.append("# CYHI Session Log")
+    out.append("")
+    out.append("- **Team:** " + str(st.get("team") or "(unset)"))
+    out.append("- **Track:** " + str(st.get("track") or "(unset)"))
+    out.append("- **Members:** " + (", ".join(st.get("members", [])) or "(unset)"))
+    out.append("- **Turns:** " + str(len(pairs)) + "  |  **Generated:** " + now_iso())
+    out.append("")
+    out.append("_Generated by `cyhi render`. Do not edit; edit the JSONL in `cyhi-logs/turns/`._")
+    out.append("")
+    out.append("## Summary")
+    out.append("")
+    out.append("| Member | Turns |")
+    out.append("|---|---|")
+    for m, n in by_member.most_common():
+        out.append("| " + m + " | " + str(n) + " |")
+    out.append("")
+    out.append("| Output type | Turns |")
+    out.append("|---|---|")
+    for t, n in by_type.most_common():
+        out.append("| " + t + " | " + str(n) + " |")
+    if unlogged:
+        out.append("")
+        out.append("> " + str(unlogged) + " prompt(s) have no recorded action.")
+    out.append("")
+    out.append("---")
+    out.append("")
+
+    for (member, session, turn), slot in pairs.items():
+        p, a = slot["prompt"], slot["action"]
+        ts = (slot["ts"] or "")[11:16]
+        out.append("## " + str(member) + " - session " + str(session)
+                   + " - turn " + str(turn) + " - " + ts)
+        out.append("")
+        out.append("**Prompt (exact):**")
+        out.append("")
+        if p and p.get("text"):
+            for line in str(p["text"]).splitlines() or [""]:
+                out.append("> " + line)
+        else:
+            out.append("> _(not captured)_")
+        out.append("")
+        out.append("**What the agent did:**")
+        out.append("")
+        out.append(a.get("summary", "") if a else "_(not logged)_")
+        out.append("")
+        if a:
+            line = "**Output type:** " + str(a.get("type", "other"))
+            if a.get("files"):
+                line += "  |  **Files:** " + ", ".join(a["files"])
+            out.append(line)
+            out.append("")
+        out.append("---")
+        out.append("")
+
+    dest = Path(args.out) if args.out else (ctx.logs / "session.md")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("\n".join(out), encoding="utf-8")
+    print("wrote " + str(dest) + " (" + str(len(pairs)) + " turns)")
+    return 0
+
+
+def _context_blob(ctx: Ctx, limit=8) -> str:
+    st = ctx.state()
+    lines = ["## CYHI session context (auto-injected)", ""]
+    lines.append("Team: " + str(st.get("team") or "UNKNOWN - ask the participant"))
+    lines.append("Track: " + str(st.get("track") or "UNKNOWN - ask the participant"))
+    lines.append("You are: " + ctx.member() + "  |  Session: " + ctx.session())
+    lines.append("")
+    lines.append("**Invoke the `cyhi-skills` skill now.** After every response, log the turn:")
+    lines.append("`" + LOGDIR + "/bin/cyhi log --type <code|debug|explanation|architecture|research|writing|other> --summary \"...\"`")
+    lines.append("")
+    if ctx.handoff_path.exists():
+        lines.append("### Handoff from the previous session")
+        lines.append("")
+        lines.append(ctx.handoff_path.read_text(encoding="utf-8").strip())
+        lines.append("")
+    pairs = pair_turns(ctx.all_records())
+    recent = list(pairs.items())[-limit:]
+    if recent:
+        lines.append("### Last " + str(len(recent)) + " logged turns")
+        lines.append("")
+        for (member, session, turn), slot in recent:
+            a = slot["action"]
+            summary = a.get("summary", "") if a else "(no action logged)"
+            lines.append("- " + str(member) + " t" + str(turn) + ": " + summary[:180])
+        lines.append("")
+    return "\n".join(lines)
+
+
+def cmd_status(ctx: Ctx, args):
+    print(_context_blob(ctx, args.limit))
+    return 0
+
+
+def cmd_session_start(ctx: Ctx, args):
+    payload = stdin_json()
+    sid = payload.get("session_id")
+    if sid:
+        ctx.set_session(sid)
+
+    # Auto-init if cyhi-logs doesn't exist
+    if not ctx.logs.exists():
+        try:
+            ctx.ensure()
+            # Create minimal state so cyhi status works
+            st = ctx.state()
+            if "created" not in st:
+                st["created"] = now_iso()
+                st["updated"] = now_iso()
+                st.setdefault("team", "TEAM_TBD")
+                st.setdefault("track", "TRACK_TBD")
+                st.setdefault("members", [ctx.member()])
+                ctx.save_state(st)
+            # Install hooks
+            class HooksArgs:
+                settings = None
+            cmd_install_hooks(ctx, HooksArgs())
+        except Exception as e:
+            # Fail silently; don't break the session
+            pass
+
+    blob = _context_blob(ctx)
+    print(json.dumps({
+        "additionalContext": blob,
+        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": blob},
+    }))
+    return 0
+
+
+def cmd_session_end(ctx: Ctx, args):
+    try:
+        ns = argparse.Namespace(out=None)
+        cmd_render(ctx, ns)
+    except Exception:
+        pass
+    return 0
+
+
+HOOKS = {
+    "SessionStart": [{"hooks": [{"type": "command",
+                                 "command": '"${CLAUDE_PROJECT_DIR:-.}/cyhi-logs/bin/cyhi" session-start',
+                                 "timeout": 20}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command",
+                                     "command": '"${CLAUDE_PROJECT_DIR:-.}/cyhi-logs/bin/cyhi" prompt',
+                                     "timeout": 10}]}],
+    "SessionEnd": [{"hooks": [{"type": "command",
+                               "command": '"${CLAUDE_PROJECT_DIR:-.}/cyhi-logs/bin/cyhi" session-end',
+                               "timeout": 20}]}],
+}
+
+
+def cmd_install_hooks(ctx: Ctx, args):
+    path = Path(args.settings) if args.settings else (ctx.root / ".claude" / "settings.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        cfg = {}
+    hooks = cfg.setdefault("hooks", {})
+    added = []
+    for event, entries in HOOKS.items():
+        bucket = hooks.setdefault(event, [])
+        serialised = json.dumps(entries[0], sort_keys=True)
+        if any(json.dumps(e, sort_keys=True) == serialised for e in bucket):
+            continue
+        if any("cyhi" in json.dumps(e) for e in bucket):
+            continue
+        bucket.extend(entries)
+        added.append(event)
+    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    print("hooks written to " + str(path) + (" (added: " + ", ".join(added) + ")" if added else " (already present)"))
+    print("Restart the agent so the hooks load; each teammate approves them once.")
+    return 0
+
+
+def cmd_auto_init(ctx: Ctx, args):
+    """One-command setup: copy cyhi, init project, install hooks."""
+    import shutil
+
+    # 1. Copy cyhi script to cyhi-logs/bin/cyhi
+    ctx.ensure()
+    target = ctx.logs / "bin" / "cyhi"
+    if not target.exists():
+        # Get path to this script
+        this_script = Path(__file__).resolve() if '__file__' in globals() else Path(sys.argv[0]).resolve()
+        shutil.copy2(this_script, target)
+        target.chmod(0o755)
+        print(f"Copied cyhi script to {target}")
+
+    # 2. Run init (create state.json, .gitattributes, .gitignore, HANDOFF.md)
+    class InitArgs:
+        team = args.team
+        track = args.track
+        member = args.member
+    cmd_init(ctx, InitArgs())
+
+    # 3. Install hooks
+    class HooksArgs:
+        settings = None
+    cmd_install_hooks(ctx, HooksArgs())
+
+    print("\n✓ CYHI auto-init complete. Prompts will be logged automatically.")
+    print(f"  cyhi-logs: {ctx.logs}")
+    print(f"  hooks: .claude/settings.json (restart agent to load)")
+    return 0
+
+
+def build_parser():
+    ap = argparse.ArgumentParser(prog="cyhi", description="Can You Hack It? session logger")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("auto-init", help="[RECOMMENDED] one command: copy cyhi, init, install hooks")
+    p.add_argument("--team"); p.add_argument("--track"); p.add_argument("--member")
+    p.set_defaults(fn=cmd_auto_init)
+
+    p = sub.add_parser("init", help="create cyhi-logs/, state, .gitattributes, HANDOFF.md")
+    p.add_argument("--team"); p.add_argument("--track"); p.add_argument("--member")
+    p.set_defaults(fn=cmd_init)
+
+    p = sub.add_parser("whoami", help="show or set this machine's member id")
+    p.add_argument("--set"); p.set_defaults(fn=cmd_whoami)
+
+    p = sub.add_parser("prompt", help="record a prompt (hook entrypoint)")
+    p.add_argument("--text"); p.add_argument("--session"); p.set_defaults(fn=cmd_prompt)
+
+    p = sub.add_parser("log", help="record what the agent just did")
+    p.add_argument("--type", choices=list(TYPES)); p.add_argument("--summary")
+    p.add_argument("--files"); p.add_argument("--prompt"); p.add_argument("--session")
+    p.set_defaults(fn=cmd_log)
+
+    p = sub.add_parser("handoff", help="overwrite HANDOFF.md from stdin")
+    p.add_argument("--text"); p.set_defaults(fn=cmd_handoff)
+
+    p = sub.add_parser("render", help="generate the human-readable session log")
+    p.add_argument("-o", "--out"); p.set_defaults(fn=cmd_render)
+
+    p = sub.add_parser("status", help="print state + handoff + recent turns")
+    p.add_argument("--limit", type=int, default=8); p.set_defaults(fn=cmd_status)
+
+    p = sub.add_parser("session-start", help="SessionStart hook entrypoint")
+    p.set_defaults(fn=cmd_session_start)
+    p = sub.add_parser("session-end", help="SessionEnd hook entrypoint")
+    p.set_defaults(fn=cmd_session_end)
+
+    p = sub.add_parser("install-hooks", help="merge cyhi hooks into .claude/settings.json")
+    p.add_argument("--settings"); p.set_defaults(fn=cmd_install_hooks)
+    return ap
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
+    ctx = Ctx(find_root())
+    hookish = args.cmd in ("prompt", "session-start", "session-end")
+    try:
+        return args.fn(ctx, args)
+    except Exception as exc:
+        if hookish:
+            if args.cmd == "session-start":
+                print(json.dumps({}))
+            return 0
+        print("cyhi: " + type(exc).__name__ + ": " + str(exc), file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

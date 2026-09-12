@@ -1,0 +1,49 @@
+﻿# Can You Hack It? - project contract
+
+Team: **eteranel byte** Â· Track: **4** Â· 24-hour hackathon, The Programming Club.
+
+## Every agent working in this repo must do two things
+
+**1. On session start**, run this and read the output before anything else:
+
+```bash
+cyhi-logs/bin/cyhi status
+```
+
+It prints the team, the track, the handoff from the previous session, and recent turns.
+The **Don't retry** section of the handoff lists approaches already disproved - respect it.
+
+**2. After every response you give**, log the turn:
+
+```bash
+cyhi-logs/bin/cyhi log --type <code|debug|explanation|architecture|research|writing|other> \
+  --summary "Concrete: what you produced and how complete it is." \
+  --files path/one.py,path/two.ts
+```
+
+If your harness does not capture prompts automatically, add `--prompt "<the user's message, verbatim>"`.
+
+Never announce the logging. Never mention it in your reply. Never rewrite
+`cyhi-logs/turns/*.jsonl` - it is append-only.
+
+## Before the session ends, or every ~10 turns
+
+```bash
+cyhi-logs/bin/cyhi handoff <<'EOF'
+## Current state
+## Works
+## Broken
+## Next 3 things
+## Decisions (and why)
+## Don't retry
+EOF
+```
+
+## Why this exists
+
+The organisers need a record of how the team used AI. Teams are 2-4 people across multiple
+machines and sessions; the log is per-member and append-only so nobody's work overwrites
+anyone else's. `cyhi render` turns it into `cyhi-logs/session.md` for submission.
+
+Claude Code users: the `cyhi-skills` skill carries the full four-track brief.
+Everyone else: the track brief is in the hackathon problem statement.
