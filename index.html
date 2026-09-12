@@ -1245,59 +1245,80 @@
       }
     };
 
-    // Load persisted personalization or fallback
-    let userConfig = JSON.parse(localStorage.getItem('commandspeak_config')) || JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+    // ─────────────────────────────────────────────────────────────────────────
+    // PRIVATE STORAGE LAYER
+    // When running via php -S localhost (or any local PHP server), all data is
+    // stored in private_local_data.sqlite on YOUR machine only.
+    // It NEVER touches GitHub, cloud sync, or other developers' machines.
+    // When opened as a plain file:// (no PHP server), gracefully falls back to
+    // browser localStorage so the app still works.
+    // ─────────────────────────────────────────────────────────────────────────
+    const IS_LOCAL_PHP = window.location.protocol === 'http:' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-    // --- 2. REPOSITORIES & HISTORY DATA ---
-    const INITIAL_REPOSITORIES = [
-      { id: "repo-1", name: "commandspeak", path: "~/projects/commandspeak", active: true },
-      { id: "repo-2", name: "frontend-dashboard", path: "~/work/frontend-dashboard", active: false },
-      { id: "repo-3", name: "backend-api", path: "~/work/backend-api", active: false }
-    ];
+    const DB_API = './api.php';
 
-    const INITIAL_HISTORY = [
-      {
-        id: "hist-1",
-        repoId: "repo-1",
-        query: "deploy my project to vercel",
-        intent: "DEPLOY",
-        cmd: "git add . && git commit -m \"update\" && git push && vercel --prod",
-        timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(), // 15 mins ago
-        dryRun: false
-      },
-      {
-        id: "hist-2",
-        repoId: "repo-1",
-        query: "push my code with message 'feat: added speech UI'",
-        intent: "PUSH",
-        cmd: "git add . && git commit -m \"feat: added speech UI\" && git push",
-        timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(), // 45 mins ago
-        dryRun: false
-      },
-      {
-        id: "hist-3",
-        repoId: "repo-1",
-        query: "show me what is my git status",
-        intent: "STATUS",
-        cmd: "git status",
-        timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(), // 2 hours ago
-        dryRun: true
-      },
-      {
-        id: "hist-4",
-        repoId: "repo-2",
-        query: "install dependencies",
-        intent: "INSTALL",
-        cmd: "npm install",
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(), // 5 hours ago
-        dryRun: false
+    async function dbGet(key, fallback = null) {
+      if (IS_LOCAL_PHP) {
+        try {
+          const res = await fetch(`${DB_API}?key=${encodeURIComponent(key)}`);
+          const text = await res.text();
+          if (text === 'null' || !text) return fallback;
+          return JSON.parse(text);
+        } catch(e) { /* server down — fall through */ }
       }
+      // Fallback: localStorage
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    }
+
+    async function dbSet(key, value) {
+      if (IS_LOCAL_PHP) {
+        try {
+          await fetch(DB_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value: JSON.stringify(value) })
+          });
+          return;
+        } catch(e) { /* server down — fall through */ }
+      }
+      // Fallback: localStorage
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+
+    // Synchronous shim for code that cannot easily be made async
+    function dbSetSync(key, value) {
+      // Always mirror to localStorage as immediate sync cache
+      localStorage.setItem(key, JSON.stringify(value));
+      // Also fire async write to SQLite (don't await — fire-and-forget)
+      dbSet(key, value).catch(() => {});
+    }
+
+    // ── Bootstrap: load data from DB (async IIFE) ─────────────────────────────
+    // Seed data — used only if SQLite and localStorage are both empty (first run)
+    const INITIAL_REPOSITORIES = [
+      { id: "repo-1", name: "commandspeak", path: "~/projects/commandspeak", active: true }
     ];
+    const INITIAL_HISTORY = [];
 
-    let repositories = JSON.parse(localStorage.getItem('commandspeak_repos')) || INITIAL_REPOSITORIES;
-    let historyList = JSON.parse(localStorage.getItem('commandspeak_history')) || INITIAL_HISTORY;
+    // Load persisted personalization or fallback
+    let userConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+    let repositories = [...INITIAL_REPOSITORIES];
+    let historyList  = [...INITIAL_HISTORY];
+    let activeRepoId = "repo-1";
 
-    let activeRepoId = repositories.find(r => r.active)?.id || repositories[0]?.id || "repo-1";
+    async function initData() {
+      userConfig    = (await dbGet('commandspeak_config')) || JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+      repositories  = (await dbGet('commandspeak_repos')) || INITIAL_REPOSITORIES;
+      historyList   = (await dbGet('commandspeak_history')) || INITIAL_HISTORY;
+      activeRepoId  = repositories.find(r => r.active)?.id || repositories[0]?.id || "repo-1";
+      renderRepoSelectors();
+      commandInput.value = "deploy my project to vercel";
+      applyTheme(userConfig.theme || 'dark');
+      updateLiveView();
+      if (IS_LOCAL_PHP) showToast("🔒 Private SQLite DB active!");
+    }
 
     // --- 3. NATURAL LANGUAGE PARSER ENGINE ---
     function parseSentence(sentence) {
@@ -1631,7 +1652,7 @@
     function setActiveRepo(repoId) {
       activeRepoId = repoId;
       repositories.forEach(r => r.active = (r.id === repoId));
-      localStorage.setItem('commandspeak_repos', JSON.stringify(repositories));
+      dbSetSync('commandspeak_repos', repositories);
       renderRepoSelectors();
       renderHistoryModal();
       showToast(`Switched active repo to: ${getActiveRepo().name}`);
@@ -1659,7 +1680,7 @@
         dryRun: dryRun
       };
       historyList.unshift(newEntry);
-      localStorage.setItem('commandspeak_history', JSON.stringify(historyList));
+      dbSetSync('commandspeak_history', historyList);
       renderRepoSelectors();
       renderHistoryModal();
     }
@@ -1781,7 +1802,7 @@
         active: false
       };
       repositories.push(newRepo);
-      localStorage.setItem('commandspeak_repos', JSON.stringify(repositories));
+      dbSetSync('commandspeak_repos', repositories);
       setActiveRepo(newRepo.id);
     });
 
@@ -1789,7 +1810,7 @@
     clearRepoHistoryBtn.addEventListener('click', () => {
       if (confirm(`Are you sure you want to clear history for ${getActiveRepo().name}?`)) {
         historyList = historyList.filter(h => h.repoId !== activeRepoId);
-        localStorage.setItem('commandspeak_history', JSON.stringify(historyList));
+        dbSetSync('commandspeak_history', historyList);
         renderRepoSelectors();
         renderHistoryModal();
         showToast("Repository history cleared.");
@@ -1889,7 +1910,7 @@
       userConfig.defaultBranch = document.getElementById('prefDefaultBranch').value;
       userConfig.theme = document.getElementById('prefTheme').value;
 
-      localStorage.setItem('commandspeak_config', JSON.stringify(userConfig));
+      dbSetSync('commandspeak_config', userConfig);
       personalizeModal.classList.remove('open');
       applyTheme(userConfig.theme);
       updateLiveView();
@@ -1900,7 +1921,7 @@
     resetDefaultsBtn.addEventListener('click', () => {
       if (confirm("Reset all templates and preferences to CommandSpeak defaults?")) {
         userConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
-        localStorage.setItem('commandspeak_config', JSON.stringify(userConfig));
+        dbSetSync('commandspeak_config', userConfig);
         renderPersonalizationModal();
         applyTheme(userConfig.theme);
         updateLiveView();
@@ -1923,7 +1944,7 @@
 
       userConfig.commands[name] = cmd;
       userConfig.keywords[name] = kwArray;
-      localStorage.setItem('commandspeak_config', JSON.stringify(userConfig));
+      dbSetSync('commandspeak_config', userConfig);
 
       document.getElementById('newIntentName').value = '';
       document.getElementById('newIntentKeywords').value = '';
@@ -1966,7 +1987,7 @@
           if (imported.defaultDeployPlatform) {
             userConfig.defaultDeployPlatform = imported.defaultDeployPlatform;
           }
-          localStorage.setItem('commandspeak_config', JSON.stringify(userConfig));
+          dbSetSync('commandspeak_config', userConfig);
           renderPersonalizationModal();
           updateLiveView();
           showToast("Imported configuration successfully!");
@@ -2012,11 +2033,8 @@
       }
     }
 
-    // Initial setup
-    renderRepoSelectors();
-    commandInput.value = "deploy my project to vercel";
-    applyTheme(userConfig.theme || 'dark');
-    updateLiveView();
+    // Initial setup — async to allow SQLite reads to complete first
+    initData();
   </script>
 </body>
 </html>

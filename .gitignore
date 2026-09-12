@@ -15,6 +15,14 @@
 .env
 .commandspeakrc.json
 
+# Local SQLite database — PRIVATE, never push to GitHub
+private_local_data.sqlite
+*.sqlite
+
+# Local scratch / backups
+index_backup.html
+parse_transcript.py
+
 # IDEs
 .idea/
 .vscode/
