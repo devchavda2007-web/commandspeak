@@ -52,6 +52,16 @@ func ExecuteIntent(intent parser.ParsedIntent, cfg *config.Config, globalDryRun 
 		intentName = "INSTALL"
 	case parser.IntentStart:
 		intentName = "START"
+	case parser.IntentClone:
+		intentName = "CLONE"
+		if intent.Parameters["repoUrl"] == "" && !isDryRun {
+			// Prompt user for the URL if not extracted from sentence
+			fmt.Print("Enter the GitHub repo URL to clone: ")
+			reader := bufio.NewReader(os.Stdin)
+			url, _ := reader.ReadString('\n')
+			url = strings.TrimSpace(url)
+			intent.Parameters["repoUrl"] = url
+		}
 	case parser.IntentUndo:
 		intentName = "UNDO"
 		if !isDryRun {

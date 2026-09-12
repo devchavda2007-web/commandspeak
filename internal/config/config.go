@@ -90,6 +90,7 @@ func createDefaultConfig() *Config {
 			"INIT":           "git init",
 			"INSTALL":        "npm install",
 			"START":          "npm start",
+			"CLONE":          "git clone {{repoUrl}}",
 		},
 	}
 }

@@ -17,6 +17,7 @@ const (
 	IntentInit          IntentType = "INIT"
 	IntentInstall       IntentType = "INSTALL"
 	IntentStart         IntentType = "START"
+	IntentClone         IntentType = "CLONE"
 	IntentUnknown       IntentType = "UNKNOWN"
 )
 
@@ -57,6 +58,7 @@ func ParseSentence(sentence string) ParsedIntent {
 		IntentInit:          {"initialize", "init", "repository"},
 		IntentInstall:       {"install", "dependencies", "packages"},
 		IntentStart:         {"start", "server", "dev"},
+		IntentClone:         {"clone", "download", "fork"},
 	}
 
 	words := strings.Fields(sentence)
@@ -98,6 +100,12 @@ func ParseSentence(sentence string) ParsedIntent {
 		pushRegex := regexp.MustCompile(`message\s+(.+)`)
 		if match := pushRegex.FindStringSubmatch(sentence); match != nil {
 			intent.Parameters["message"] = strings.Trim(match[1], "\"'")
+		}
+	} else if intent.Type == IntentClone {
+		// Extract a GitHub URL from the sentence
+		urlRegex := regexp.MustCompile(`(https?://\S+)`)
+		if match := urlRegex.FindStringSubmatch(sentence); match != nil {
+			intent.Parameters["repoUrl"] = match[1]
 		}
 	}
 
