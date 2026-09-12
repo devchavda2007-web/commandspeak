@@ -14,6 +14,9 @@ const (
 	IntentRunTests      IntentType = "RUN_TESTS"
 	IntentStatus        IntentType = "STATUS"
 	IntentUndo          IntentType = "UNDO"
+	IntentInit          IntentType = "INIT"
+	IntentInstall       IntentType = "INSTALL"
+	IntentStart         IntentType = "START"
 	IntentUnknown       IntentType = "UNKNOWN"
 )
 
@@ -51,6 +54,9 @@ func ParseSentence(sentence string) ParsedIntent {
 		IntentRunTests:      {"run", "test", "tests", "build"},
 		IntentStatus:        {"status", "git"},
 		IntentUndo:          {"undo", "commit", "last"},
+		IntentInit:          {"initialize", "init", "repository"},
+		IntentInstall:       {"install", "dependencies", "packages"},
+		IntentStart:         {"start", "server", "dev"},
 	}
 
 	words := strings.Fields(sentence)

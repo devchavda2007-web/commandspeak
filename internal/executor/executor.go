@@ -46,6 +46,12 @@ func ExecuteIntent(intent parser.ParsedIntent, cfg *config.Config, globalDryRun 
 		intentName = "RUN_TESTS"
 	case parser.IntentStatus:
 		intentName = "STATUS"
+	case parser.IntentInit:
+		intentName = "INIT"
+	case parser.IntentInstall:
+		intentName = "INSTALL"
+	case parser.IntentStart:
+		intentName = "START"
 	case parser.IntentUndo:
 		intentName = "UNDO"
 		if !isDryRun {

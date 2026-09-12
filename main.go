@@ -74,7 +74,7 @@ func runChangeCommand() {
 	}
 	fmt.Println("----------------------------------")
 
-	fmt.Print("\nWhich command do you want to change? (DEPLOY, PUSH, CLEAN_BRANCHES, RUN_TESTS, STATUS, UNDO) or type 'exit': ")
+	fmt.Print("\nWhich command do you want to change? (DEPLOY, PUSH, CLEAN_BRANCHES, RUN_TESTS, STATUS, UNDO, INIT, INSTALL, START) or type 'exit': ")
 	intentToChange, _ := reader.ReadString('\n')
 	intentToChange = strings.ToUpper(strings.TrimSpace(intentToChange))
 
@@ -145,6 +145,9 @@ func processSentence(sentence string) {
 		fmt.Println("  - \"run my tests and build\"")
 		fmt.Println("  - \"show me my git status\"")
 		fmt.Println("  - \"undo my last commit\"")
+		fmt.Println("  - \"initialize git repository\"")
+		fmt.Println("  - \"install dependencies\"")
+		fmt.Println("  - \"start server\"")
 		return
 	}
 

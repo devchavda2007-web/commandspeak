@@ -87,6 +87,9 @@ func createDefaultConfig() *Config {
 			"RUN_TESTS":      "npm test && npm run build",
 			"STATUS":         "git status",
 			"UNDO":           "git reset --soft HEAD~1",
+			"INIT":           "git init",
+			"INSTALL":        "npm install",
+			"START":          "npm start",
 		},
 	}
 }
