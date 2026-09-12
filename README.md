@@ -1,105 +1,100 @@
-# CommandSpeak
-
-**Terminal Velocity — CLI tools for developer workflows.**
-
-CommandSpeak is a natural language CLI tool that saves developers time by translating simple English sentences into complex terminal commands. 
-
-**V2 Improvements**: CommandSpeak now features a flexible keyword-scoring parser, a `--dry-run` flag, Git safety confirmations, colored output, interactive configuration, and a built-in interactive GitHub Repository Manager!
-
-## Features
-
-- **Interactive GitHub Repo Manager**: Manage any GitHub repository right from the CLI. Clone, view files, edit natively, commit, and pull via an interactive menu. Run `commandspeak repo`.
-- **Flexible Natural Language Parsing**: You don't have to memorize exact phrases. Say "push code to vercel", "deploy my project", or "clone repo https://github..."—the parser uses keyword scoring to figure out your intent without any external LLM APIs (100% offline).
-- **Dry-Run Mode**: Not sure what a sentence will do? Add the `--dry-run` flag or just include "show me" in your sentence to see the exact shell command that would run without actually executing it.
-- **Safety Confirmations**: Before pushing, deploying, or undoing commits, the tool checks your `git status`. If you have uncommitted changes, it will warn you and ask for confirmation.
-- **Interactive Configuration**: Run `commandspeak change` to interactively customize the exact shell scripts mapped to each intent. 
-
-# README Updated
-## Installation
-
-Ensure you have [Go](https://go.dev/) installed and PHP (for private SQLite backend).
-
-```bash
-# Clone the repository
-git clone https://github.com/devchavda2007-web/commandspeak
-cd commandspeak
-
-# Download Go dependencies
-go mod tidy
-
-# Build and install the binary globally
-go install
-
-# (Optional) Install PHP for private SQLite backend
-# On Windows you can use Chocolatey: choco install php
-# On macOS: brew install php
-```
-
-Make sure your `~/go/bin` directory is in your system's PATH.
-
-## Running the Front‑end
-
-- **Static mode (no server):** Open `index.html` directly (`file://`). The app falls back to `localStorage`.
-- **Private SQLite mode:** Start a local PHP server:
-
-```bash
-php -S localhost:8080
-```
-
-Then open `http://localhost:8080/index.html`. A toast "🔒 Private SQLite DB active!" confirms the DB is used.
-
-## CYHI Compliance
-
-All code changes are logged with the CYHI tool as `type: code`. The project follows the CYHI skill set requirements for Track 4.
+<div align="center">
+  <h1>🚀 CommandSpeak</h1>
+  <p><b>Terminal Velocity — Natural Language CLI Tools for Developer Workflows</b></p>
+  <p><i>A Track 4 Submission for CYHI Hackathon (Team: eteranel byte)</i></p>
+</div>
 
 ---
 
+**CommandSpeak** is a powerful CLI tool that saves developers time by translating simple English sentences into complex terminal commands. 
 
-Make sure your `~/go/bin` directory is in your system's PATH.
+No more googling obscure git flags or memorizing exact bash scripts. Just speak plain English, and CommandSpeak executes the right developer commands. Best of all, it works **100% offline** with no external LLM API keys required.
 
-## Usage Examples
+## ✨ Features
 
-**1. Interactive GitHub Repo Manager (New!)**
+- 🧠 **Natural Language Parsing:** Say `"push code to vercel"`, `"deploy my project"`, or `"clean my old branches"`. The built-in keyword scoring engine instantly figures out your intent.
+- 📦 **Interactive Repo Manager:** Run `commandspeak repo` to launch a fully interactive TUI (Terminal User Interface). Browse files, edit in Nano/Notepad, commit, push, pull, and branch—without leaving the menu.
+- 🖥️ **Private Web Dashboard:** Run `commandspeak ui` to pop open a sleek web UI showing your command history and settings. Data is stored safely in a **local SQLite database** and never leaves your machine.
+- 🛡️ **Git Safety Confirmations:** Before pushing or deploying, it checks your `git status`. If you have uncommitted changes, it warns you before making a mess.
+- 🔍 **Dry-Run Mode:** Add `--dry-run` or say `"show me how to deploy"` to see exactly what bash command would run without actually executing it.
+- ⚙️ **Fully Customizable:** Run `commandspeak change` to edit your command templates interactively.
+
+---
+
+## 🚀 Installation
+
+Ensure you have [Go](https://go.dev/) installed on your machine.
+
 ```bash
-# Interactive mode
-$ commandspeak repo
+# 1. Clone the repository
+git clone https://github.com/devchavda2007-web/commandspeak.git
+cd commandspeak
 
-# Or pass a URL directly
-$ commandspeak repo https://github.com/user/project
-```
-This drops you into an interactive menu with 10 options allowing you to browse files, edit files natively (Notepad/nano), push commits, and more.
+# 2. Download Go dependencies
+go mod tidy
 
-**2. Natural Language Cloning**
-```bash
-$ commandspeak "clone repo https://github.com/user/project"
-> git clone https://github.com/user/project
+# 3. Build and install the CLI globally
+go install
 ```
 
-**3. Deploying a project**
+> **Note:** Ensure your `~/go/bin` directory (or `%USERPROFILE%\go\bin` on Windows) is in your system's `PATH`.
+
+*(Optional)* **Install PHP** for the private SQLite Dashboard:
+- Windows: `choco install php`
+- Mac: `brew install php`
+
+---
+
+## 📖 Usage Guide
+
+### 1. The Natural Language CLI
+Just type `commandspeak` followed by what you want to do:
+
 ```bash
 $ commandspeak "deploy my project to vercel"
-> git add . && git commit -m "update" && git push && vercel --prod
-```
+✔ Done! > git add . && git commit -m "update" && git push && vercel --prod
 
-**4. Check Git Status**
-```bash
-$ commandspeak "what is my git status"
-> git status
-```
+$ commandspeak "show me my git status"
+✔ Done! > git status
 
-**5. Start Server / Install Dependencies**
-```bash
 $ commandspeak "install packages and start dev server"
-> npm install && npm start
+✔ Done! > npm install && npm start
 ```
 
-**6. Dry-Run Mode**
+### 2. The Interactive Repo Manager
+Want to manage a GitHub repo interactively?
+
 ```bash
-$ commandspeak "show me how to deploy to vercel"
-Dry-run — would execute:
-  > git add . && git commit -m "update" && git push && vercel --prod
+$ commandspeak repo https://github.com/devchavda2007-web/commandspeak
 ```
+*This opens a 10-option interactive menu to view files, edit natively, commit, push, and more.*
 
-## How to Customize
+### 3. The Web Dashboard (`commandspeak ui`)
+Want to see your command history or configure your settings in a beautiful GUI?
 
-Run `commandspeak change` to view and edit your command templates interactively. Your preferences are saved locally to `~/.commandspeakrc.json` so your personal workflows are never tracked in Git!
+```bash
+$ commandspeak ui
+```
+*This automatically starts a local server and opens the dashboard in your browser.*
+
+### 4. Customizing Commands
+Want to change what command runs when you say "deploy"?
+
+```bash
+$ commandspeak change
+```
+*This opens an interactive wizard to edit your `~/.commandspeakrc.json` file.*
+
+---
+
+## 🔒 Privacy & Architecture
+
+CommandSpeak is designed for **maximum privacy**:
+1. **Offline NLP**: The natural language parser uses local keyword-scoring heuristics in Go. No code or prompts are sent to OpenAI/Anthropic.
+2. **Local SQLite Backend**: The `commandspeak ui` dashboard uses a lightweight PHP server (`api.php`) to save your data to a `private_local_data.sqlite` database stored locally on your machine.
+3. **No Cloud Syncing**: Your history, configs, and repos never leave your computer. The database is explicitly git-ignored.
+
+## 🏆 CYHI Hackathon Compliance
+- **Track 4 (Terminal Velocity)**: Designed specifically to accelerate CLI workflows.
+- All development was logged using the `cyhi log` tool (`cyhi-logs/turns/devchavda2007.jsonl`).
+- Implemented core deliverables: The Go CLI, interactive GitHub manager, and private SQLite data retention.
