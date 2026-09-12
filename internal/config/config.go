@@ -48,6 +48,14 @@ func LoadConfig() (*Config, error) {
 	// Ensure the commands map is initialized if missing
 	if cfg.Commands == nil {
 		cfg.Commands = createDefaultConfig().Commands
+	} else {
+		// Fill in new default commands if they don't exist yet for existing users
+		defaults := createDefaultConfig().Commands
+		for k, v := range defaults {
+			if _, exists := cfg.Commands[k]; !exists {
+				cfg.Commands[k] = v
+			}
+		}
 	}
 
 	return &cfg, nil
@@ -77,6 +85,8 @@ func createDefaultConfig() *Config {
 			"PUSH":           "git add . && git commit -m \"{{message}}\" && git push",
 			"CLEAN_BRANCHES": "git branch --merged | grep -v \"\\*\" | grep -v \"master\" | grep -v \"main\" | xargs -r -n 1 git branch -d",
 			"RUN_TESTS":      "npm test && npm run build",
+			"STATUS":         "git status",
+			"UNDO":           "git reset --soft HEAD~1",
 		},
 	}
 }

@@ -10,17 +10,19 @@ import (
 	"commandspeak/internal/executor"
 	"commandspeak/internal/parser"
 
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
 
 var cfg *config.Config
+var globalDryRun bool
 
 func main() {
 	// Initialize config
 	var err error
 	cfg, err = config.LoadConfig()
 	if err != nil {
-		fmt.Printf("Warning: Failed to load config: %v\n", err)
+		color.Yellow("Warning: Failed to load config: %v", err)
 	}
 
 	var rootCmd = &cobra.Command{
@@ -44,6 +46,8 @@ For example:
 		},
 	}
 
+	rootCmd.PersistentFlags().BoolVar(&globalDryRun, "dry-run", false, "Print the shell command without executing it")
+
 	var changeCmd = &cobra.Command{
 		Use:   "change",
 		Short: "Interactively change the configured shell commands",
@@ -62,7 +66,7 @@ For example:
 
 func runChangeCommand() {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("--- CommandSpeak Configuration ---")
+	color.Cyan("--- CommandSpeak Configuration ---")
 	
 	// List current commands
 	for intent, cmdStr := range cfg.Commands {
@@ -70,7 +74,7 @@ func runChangeCommand() {
 	}
 	fmt.Println("----------------------------------")
 
-	fmt.Print("\nWhich command do you want to change? (DEPLOY, PUSH, CLEAN_BRANCHES, RUN_TESTS) or type 'exit': ")
+	fmt.Print("\nWhich command do you want to change? (DEPLOY, PUSH, CLEAN_BRANCHES, RUN_TESTS, STATUS, UNDO) or type 'exit': ")
 	intentToChange, _ := reader.ReadString('\n')
 	intentToChange = strings.ToUpper(strings.TrimSpace(intentToChange))
 
@@ -81,7 +85,7 @@ func runChangeCommand() {
 
 	_, exists := cfg.Commands[intentToChange]
 	if !exists {
-		fmt.Printf("Unknown intent '%s'.\n", intentToChange)
+		color.Red("Unknown intent '%s'.", intentToChange)
 		return
 	}
 
@@ -95,9 +99,9 @@ func runChangeCommand() {
 		cfg.Commands[intentToChange] = newCmd
 		err := config.SaveConfig(cfg)
 		if err != nil {
-			fmt.Printf("Error saving config: %v\n", err)
+			color.Red("Error saving config: %v", err)
 		} else {
-			fmt.Println("Configuration updated successfully!")
+			color.Green("Configuration updated successfully!")
 		}
 	} else {
 		fmt.Println("No changes made.")
@@ -112,7 +116,7 @@ func runInteractive() {
 		fmt.Print("\n> ")
 		sentence, err := reader.ReadString('\n')
 		if err != nil {
-			fmt.Printf("Error reading input: %v\n", err)
+			color.Red("Error reading input: %v", err)
 			continue
 		}
 
@@ -133,14 +137,23 @@ func processSentence(sentence string) {
 	intent := parser.ParseSentence(sentence)
 	
 	if intent.Type == parser.IntentUnknown {
-		fmt.Println("Sorry, I couldn't understand that command. Try 'commandspeak --help' for examples.")
+		color.Red("Sorry, I couldn't understand that command.")
+		fmt.Println("\nHere are some supported examples you can try:")
+		fmt.Println("  - \"deploy my project to vercel\"")
+		fmt.Println("  - \"push my code with message update\"")
+		fmt.Println("  - \"clean my old branches\"")
+		fmt.Println("  - \"run my tests and build\"")
+		fmt.Println("  - \"show me my git status\"")
+		fmt.Println("  - \"undo my last commit\"")
 		return
 	}
 
-	err := executor.ExecuteIntent(intent, cfg)
+	err := executor.ExecuteIntent(intent, cfg, globalDryRun)
 	if err != nil {
-		fmt.Printf("Error executing command: %v\n", err)
+		color.Red("Error executing command: %v", err)
 	} else {
-		fmt.Println("Success!")
+		if !intent.DryRun && !globalDryRun {
+			color.Green("Success!")
+		}
 	}
 }
