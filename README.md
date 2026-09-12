@@ -14,21 +14,46 @@ CommandSpeak is a natural language CLI tool that saves developers time by transl
 - **Safety Confirmations**: Before pushing, deploying, or undoing commits, the tool checks your `git status`. If you have uncommitted changes, it will warn you and ask for confirmation.
 - **Interactive Configuration**: Run `commandspeak change` to interactively customize the exact shell scripts mapped to each intent. 
 
+# README Updated
 ## Installation
 
-Ensure you have [Go](https://go.dev/) installed.
+Ensure you have [Go](https://go.dev/) installed and PHP (for private SQLite backend).
 
 ```bash
 # Clone the repository
 git clone https://github.com/devchavda2007-web/commandspeak
 cd commandspeak
 
-# Download dependencies
+# Download Go dependencies
 go mod tidy
 
 # Build and install the binary globally
 go install
+
+# (Optional) Install PHP for private SQLite backend
+# On Windows you can use Chocolatey: choco install php
+# On macOS: brew install php
 ```
+
+Make sure your `~/go/bin` directory is in your system's PATH.
+
+## Running the Front‑end
+
+- **Static mode (no server):** Open `index.html` directly (`file://`). The app falls back to `localStorage`.
+- **Private SQLite mode:** Start a local PHP server:
+
+```bash
+php -S localhost:8080
+```
+
+Then open `http://localhost:8080/index.html`. A toast "🔒 Private SQLite DB active!" confirms the DB is used.
+
+## CYHI Compliance
+
+All code changes are logged with the CYHI tool as `type: code`. The project follows the CYHI skill set requirements for Track 4.
+
+---
+
 
 Make sure your `~/go/bin` directory is in your system's PATH.
 
