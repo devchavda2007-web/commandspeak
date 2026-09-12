@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"commandspeak/internal/config"
@@ -20,21 +21,31 @@ var cfg *config.Config
 var globalDryRun bool
 
 func main() {
-	// Initialize config
 	var err error
 	cfg, err = config.LoadConfig()
 	if err != nil {
 		color.Yellow("Warning: Failed to load config: %v", err)
 	}
 
+	// ─── Root command ─────────────────────────────────────────────────────────
 	var rootCmd = &cobra.Command{
 		Use:   "commandspeak [sentence]",
 		Short: "CommandSpeak - Natural Language CLI for Developers",
-		Long: `CommandSpeak allows you to run complex terminal commands using simple natural language sentences.
-For example: 
-  commandspeak "deploy my project to vercel"
-  commandspeak "push my code with message initial commit"
-  commandspeak repo   (open the GitHub repo manager)`,
+		Long: `
+  ██████╗ ███████╗██╗   ██╗
+  ██╔══██╗██╔════╝██║   ██║
+  ██║  ██║█████╗  ██║   ██║
+  ██║  ██║██╔══╝  ╚██╗ ██╔╝
+  ██████╔╝███████╗ ╚████╔╝
+  ╚═════╝ ╚══════╝  ╚═══╝   CommandSpeak
+
+Speak plain English. Run real developer commands.
+
+  commandspeak "push my code with message fixed bug"
+  commandspeak "deploy to vercel"
+  commandspeak repo                          ← open GitHub repo manager
+  commandspeak repo https://github.com/u/p  ← clone & manage a specific repo
+  commandspeak change                        ← customize any command`,
 		Args: cobra.ArbitraryArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) == 0 {
@@ -45,48 +56,63 @@ For example:
 			processSentence(sentence)
 		},
 	}
+	rootCmd.PersistentFlags().BoolVar(&globalDryRun, "dry-run", false, "Show command without executing it")
 
-	rootCmd.PersistentFlags().BoolVar(&globalDryRun, "dry-run", false, "Print the shell command without executing it")
-
-	// --- change subcommand ---
+	// ─── change subcommand ────────────────────────────────────────────────────
 	var changeCmd = &cobra.Command{
 		Use:   "change",
-		Short: "Interactively change the configured shell commands",
+		Short: "Customize what shell command runs for each intent",
 		Run: func(cmd *cobra.Command, args []string) {
 			runChangeCommand()
 		},
 	}
 
-	// --- repo subcommand ---
-	var repoURL string
+	// ─── repo subcommand ──────────────────────────────────────────────────────
+	var repoURLFlag string
 	var repoCmd = &cobra.Command{
 		Use:   "repo [github-url]",
-		Short: "Manage any GitHub repository (clone, browse, edit, push)",
-		Long: `The repo command lets you input any GitHub repo URL and interact with it.
+		Short: "Clone and manage any GitHub repository interactively",
+		Long: `
+CommandSpeak Repo Manager — Work with ANY GitHub repository.
 
-You can provide the URL in 3 ways:
-  1. As an argument:  commandspeak repo https://github.com/user/project
-  2. As a flag:       commandspeak repo --url https://github.com/user/project
-  3. Interactively:   commandspeak repo   (then type or paste the URL when asked)
+Provide the repo URL in one of these ways:
 
-Once connected you can:
-  - List all files and folders
-  - View any file's contents
-  - Edit files (opens Notepad on Windows, nano on Linux/Mac)
-  - Commit and push changes back
-  - Pull latest changes
-  - Show git status
-  - Switch to a different remote repo`,
+  1. Direct argument:
+       commandspeak repo https://github.com/user/project
+
+  2. As a flag:
+       commandspeak repo --url https://github.com/user/project
+       commandspeak repo -u https://github.com/user/project
+
+  3. Interactive (just run and paste when asked):
+       commandspeak repo
+
+  4. Inside interactive mode shell:
+       > repo https://github.com/user/project
+
+Once you provide a URL, you get a full menu to:
+  ● Clone the repo to your machine
+  ● Browse all files and folders
+  ● View any file's contents
+  ● Edit files in Notepad (Windows) or nano (Linux/Mac)
+  ● Commit + push your changes back
+  ● Pull latest changes
+  ● Check git status
+  ● Switch to a completely different repo URL`,
 		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			// Priority: argument > --url flag > interactive prompt
+			urlFromArg := ""
 			if len(args) == 1 {
-				repoURL = args[0]
+				urlFromArg = args[0]
 			}
-			runRepoManager(repoURL)
+			// Argument takes priority over flag
+			if urlFromArg != "" {
+				repoURLFlag = urlFromArg
+			}
+			runRepoManager(repoURLFlag)
 		},
 	}
-	repoCmd.Flags().StringVarP(&repoURL, "url", "u", "", "GitHub repository URL")
+	repoCmd.Flags().StringVarP(&repoURLFlag, "url", "u", "", "GitHub repository URL to clone/manage")
 
 	rootCmd.AddCommand(changeCmd)
 	rootCmd.AddCommand(repoCmd)
@@ -97,66 +123,82 @@ Once connected you can:
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // REPO MANAGER
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 func runRepoManager(initialURL string) {
 	reader := bufio.NewReader(os.Stdin)
 
-	color.Cyan("╔══════════════════════════════════════════╗")
-	color.Cyan("║     CommandSpeak — GitHub Repo Manager   ║")
-	color.Cyan("╚══════════════════════════════════════════╝")
+	fmt.Println()
+	color.Cyan("╔══════════════════════════════════════════════════╗")
+	color.Cyan("║       CommandSpeak — GitHub Repo Manager         ║")
+	color.Cyan("╠══════════════════════════════════════════════════╣")
+	color.Cyan("║  Clone • Browse • Edit • Commit • Push • Pull    ║")
+	color.Cyan("╚══════════════════════════════════════════════════╝")
 	fmt.Println()
 
-	// ── Step 1: Determine the repo URL ──────────────────────────────────────
-	repoURL := initialURL
+	// ── STEP 1: Get Repo URL ──────────────────────────────────────────────────
+	repoURL := strings.TrimSpace(initialURL)
 
 	if repoURL == "" {
-		color.Yellow("Enter the GitHub repo URL you want to work with:")
-		color.HiBlack("  (example: https://github.com/torvalds/linux)")
-		fmt.Print("  URL > ")
+		color.Yellow("┌─ Enter the GitHub Repo URL to clone / work with:")
+		color.HiBlack("│  Examples:")
+		color.HiBlack("│    https://github.com/torvalds/linux")
+		color.HiBlack("│    https://github.com/devchavda2007-web/commandspeak")
+		color.HiBlack("│    https://github.com/anyuser/anyrepo.git")
+		fmt.Print("└─ URL > ")
 		input, _ := reader.ReadString('\n')
 		repoURL = strings.TrimSpace(input)
 	} else {
-		color.Green("Using repo: %s", repoURL)
+		color.Green("✔  Using repo: %s", repoURL)
 	}
 
 	if repoURL == "" {
-		color.Red("No URL entered. Exiting.")
+		color.Red("✗  No URL entered. Exiting repo manager.")
 		return
 	}
 
-	// Derive a local folder name from the URL  e.g. https://github.com/user/project → project
+	// ── STEP 2: Derive local folder name ─────────────────────────────────────
 	repoName := strings.TrimSuffix(filepath.Base(repoURL), ".git")
-	cloneDir := filepath.Join(".", repoName)
+	cloneDir, _ := filepath.Abs(repoName)
 
-	// Step 2: Clone if not already cloned
+	color.HiBlack("  Local folder: %s", cloneDir)
+	fmt.Println()
+
+	// ── STEP 3: Clone if needed ───────────────────────────────────────────────
 	if _, err := os.Stat(cloneDir); os.IsNotExist(err) {
-		color.Cyan("\nCloning repository...")
-		if err := runShell(fmt.Sprintf("git clone %s", repoURL)); err != nil {
-			color.Red("Failed to clone: %v", err)
+		color.Cyan("⬇  Cloning repository, please wait...")
+		if err := shellRun(".", fmt.Sprintf("git clone %s", repoURL)); err != nil {
+			color.Red("✗  Clone failed: %v", err)
+			color.HiBlack("   Make sure the URL is correct and git is installed.")
 			return
 		}
-		color.Green("Cloned into ./%s", repoName)
+		color.Green("✔  Cloned successfully into: %s", cloneDir)
 	} else {
-		color.Green("Folder ./%s already exists — skipping clone.", repoName)
+		color.Green("✔  Repo already exists at: %s  (skipping clone)", cloneDir)
 	}
 
-	// Step 3: Interactive menu
+	// ── STEP 4: Interactive Menu ──────────────────────────────────────────────
 	for {
 		fmt.Println()
-		color.Cyan("─── What do you want to do? ───────────────────────")
-		fmt.Println("  1. List files in the repository")
-		fmt.Println("  2. View a file")
-		fmt.Println("  3. Edit a file (opens nano / notepad)")
-		fmt.Println("  4. Commit and push changes")
-		fmt.Println("  5. Pull latest changes from remote")
-		fmt.Println("  6. Show git status")
-		fmt.Println("  7. Change the remote URL (point to a different repo)")
-		fmt.Println("  8. Exit repo manager")
-		color.Cyan("───────────────────────────────────────────────────")
-		fmt.Print("  Choice: ")
+		color.Cyan("╔══════════════════════════════════════════════════╗")
+		fmt.Printf("  Repo: %s\n", color.CyanString(repoURL))
+		fmt.Printf("  Dir:  %s\n", color.HiBlackString(cloneDir))
+		color.Cyan("╠══════════════════════════════════════════════════╣")
+		fmt.Println("  1.  📂  List all files & folders")
+		fmt.Println("  2.  📄  View a file")
+		fmt.Println("  3.  ✏️   Edit a file")
+		fmt.Println("  4.  🚀  Commit & push changes")
+		fmt.Println("  5.  ⬇️   Pull latest from remote")
+		fmt.Println("  6.  🔍  Show git status")
+		fmt.Println("  7.  📝  Show git log (last 10 commits)")
+		fmt.Println("  8.  🌿  Show all branches")
+		fmt.Println("  9.  🔀  Switch to a different repo URL")
+		fmt.Println("  10. 🗑️   Delete a file from the repo")
+		fmt.Println("  0.  ←   Exit repo manager")
+		color.Cyan("╚══════════════════════════════════════════════════╝")
+		fmt.Print("  Choice > ")
 
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
@@ -171,23 +213,31 @@ func runRepoManager(initialURL string) {
 		case "4":
 			repoCommitAndPush(cloneDir, reader)
 		case "5":
-			color.Cyan("Pulling latest changes...")
-			runShellIn(cloneDir, "git pull")
+			color.Cyan("⬇  Pulling latest changes...")
+			shellRun(cloneDir, "git pull")
 		case "6":
-			runShellIn(cloneDir, "git status")
+			shellRun(cloneDir, "git status")
 		case "7":
-			repoChangeRemote(cloneDir, reader)
+			shellRun(cloneDir, "git log --oneline -10")
 		case "8":
-			color.Green("Exited repo manager. Files saved in ./%s", repoName)
+			shellRun(cloneDir, "git branch -a")
+		case "9":
+			repoURL, cloneDir, repoName = repoSwitchURL(reader, repoURL)
+		case "10":
+			repoDeleteFile(cloneDir, reader)
+		case "0":
+			color.Green("✔  Exited repo manager. Your files are at: %s", cloneDir)
 			return
 		default:
-			color.Red("Unknown option '%s'. Please enter 1-8.", choice)
+			color.Red("✗  Unknown option '%s'. Enter a number from 0-10.", choice)
 		}
 	}
 }
 
+// ─── Option 1: List files ─────────────────────────────────────────────────────
 func repoListFiles(dir string) {
-	color.Cyan("\nFiles in repository:")
+	fmt.Println()
+	color.Cyan("📂  Files in repository:")
 	entries, err := listDirRecursive(dir, 0)
 	if err != nil {
 		color.Red("Error listing files: %v", err)
@@ -205,7 +255,6 @@ func listDirRecursive(root string, depth int) ([]string, error) {
 		return nil, err
 	}
 	for _, e := range entries {
-		// Skip .git directory
 		if e.Name() == ".git" {
 			continue
 		}
@@ -221,169 +270,235 @@ func listDirRecursive(root string, depth int) ([]string, error) {
 	return results, nil
 }
 
+// ─── Option 2: View file ──────────────────────────────────────────────────────
 func repoViewFile(dir string, reader *bufio.Reader) {
-	fmt.Print("  Enter file path to view (relative to repo root): ")
+	fmt.Print("  📄 File path (relative to repo root) > ")
 	filePath, _ := reader.ReadString('\n')
 	filePath = strings.TrimSpace(filePath)
 
 	fullPath := filepath.Join(dir, filePath)
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
-		color.Red("Could not read file: %v", err)
+		color.Red("✗  Could not read file '%s': %v", filePath, err)
 		return
 	}
-	color.Cyan("\n─── %s ─────────────────────────────────────────", filePath)
+	fmt.Println()
+	color.Cyan("─── %s ───────────────────────────────────────────────", filePath)
 	fmt.Println(string(data))
-	color.Cyan("──────────────────────────────────────────────────")
+	color.Cyan("────────────────────────────────────────────────────────")
 }
 
+// ─── Option 3: Edit file ──────────────────────────────────────────────────────
 func repoEditFile(dir string, reader *bufio.Reader) {
-	fmt.Print("  Enter file path to edit (relative to repo root): ")
+	fmt.Print("  ✏️  File path to edit (relative to repo root) > ")
 	filePath, _ := reader.ReadString('\n')
 	filePath = strings.TrimSpace(filePath)
-
 	fullPath := filepath.Join(dir, filePath)
 
-	// Try to open with notepad on Windows, nano on Linux/Mac
-	var editorCmd string
-	if _, err := exec.LookPath("nano"); err == nil {
-		editorCmd = fmt.Sprintf("nano %s", fullPath)
-	} else if _, err := exec.LookPath("notepad"); err == nil {
-		editorCmd = fmt.Sprintf("notepad %s", fullPath)
-	} else {
-		color.Red("No editor found (tried nano and notepad). Please edit the file manually at: %s", fullPath)
-		return
+	// Make sure the file exists before opening
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		color.Yellow("File does not exist. Create it? (y/n)")
+		ans, _ := reader.ReadString('\n')
+		ans = strings.TrimSpace(strings.ToLower(ans))
+		if ans != "y" && ans != "yes" {
+			return
+		}
+		os.MkdirAll(filepath.Dir(fullPath), 0755)
+		os.WriteFile(fullPath, []byte(""), 0644)
 	}
 
-	color.Cyan("Opening %s in editor...", fullPath)
-	cmd := exec.Command("bash", "-c", editorCmd)
-	cmd.Stdin = os.Stdin
+	color.Cyan("✏️  Opening %s ...", fullPath)
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		// On Windows: open with notepad natively (no bash needed)
+		cmd = exec.Command("notepad", fullPath)
+	} else {
+		// On Linux/Mac: use nano
+		cmd = exec.Command("nano", fullPath)
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		// Try native Windows open for notepad
-		winCmd := exec.Command("cmd", "/c", "notepad", fullPath)
-		winCmd.Stdin = os.Stdin
-		winCmd.Stdout = os.Stdout
-		winCmd.Stderr = os.Stderr
-		winCmd.Run()
+		color.Red("✗  Could not open editor: %v", err)
+		color.HiBlack("   File is at: %s  — edit it manually.", fullPath)
 	}
 }
 
+// ─── Option 4: Commit & Push ──────────────────────────────────────────────────
 func repoCommitAndPush(dir string, reader *bufio.Reader) {
-	fmt.Print("  Commit message: ")
+	fmt.Print("  🚀 Commit message > ")
 	msg, _ := reader.ReadString('\n')
 	msg = strings.TrimSpace(msg)
 	if msg == "" {
 		msg = "update via CommandSpeak"
 	}
 
-	color.Cyan("Committing and pushing...")
-	cmd := fmt.Sprintf("git add . && git commit -m \"%s\" && git push", msg)
-	if err := runShellIn(dir, cmd); err != nil {
-		color.Red("Push failed: %v", err)
-	} else {
-		color.Green("Changes pushed successfully!")
-	}
-}
-
-func repoChangeRemote(dir string, reader *bufio.Reader) {
-	fmt.Print("  Enter new remote URL: ")
-	newURL, _ := reader.ReadString('\n')
-	newURL = strings.TrimSpace(newURL)
-	if newURL == "" {
-		color.Red("No URL entered.")
+	color.Cyan("  Staging all changes...")
+	if err := shellRun(dir, "git add ."); err != nil {
+		color.Red("✗  git add failed: %v", err)
 		return
 	}
-	cmd := fmt.Sprintf("git remote set-url origin %s", newURL)
-	if err := runShellIn(dir, cmd); err != nil {
-		color.Red("Failed to change remote: %v", err)
+
+	color.Cyan("  Committing...")
+	commitCmd := fmt.Sprintf(`git commit -m "%s"`, msg)
+	if err := shellRun(dir, commitCmd); err != nil {
+		color.Yellow("  Nothing new to commit, or commit failed.")
+		return
+	}
+
+	color.Cyan("  Pushing...")
+	if err := shellRun(dir, "git push"); err != nil {
+		color.Red("✗  Push failed. You may not have write access to this repo.")
+		color.HiBlack("   If this is someone else's repo, fork it on GitHub first.")
 	} else {
-		color.Green("Remote URL updated to: %s", newURL)
+		color.Green("✔  Changes pushed successfully!")
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SHELL HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Option 9: Switch repo URL ────────────────────────────────────────────────
+func repoSwitchURL(reader *bufio.Reader, currentURL string) (newURL string, newDir string, newName string) {
+	color.Yellow("  Current repo: %s", currentURL)
+	fmt.Print("  🔀 Enter new GitHub repo URL > ")
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input == "" {
+		color.Red("No URL entered, keeping current repo.")
+		return currentURL, ".", filepath.Base(currentURL)
+	}
+	name := strings.TrimSuffix(filepath.Base(input), ".git")
+	dir, _ := filepath.Abs(name)
 
-// runShell runs a bash command in the current directory.
-func runShell(cmdStr string) error {
-	color.HiBlack("> %s", cmdStr)
-	cmd := exec.Command("bash", "-c", cmdStr)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		color.Cyan("⬇  Cloning %s ...", input)
+		if err := shellRun(".", fmt.Sprintf("git clone %s", input)); err != nil {
+			color.Red("✗  Clone failed: %v", err)
+			return currentURL, ".", filepath.Base(currentURL)
+		}
+	}
+	color.Green("✔  Switched to: %s", input)
+	return input, dir, name
 }
 
-// runShellIn runs a bash command inside a specific directory.
-func runShellIn(dir string, cmdStr string) error {
-	color.HiBlack("> (in %s) %s", dir, cmdStr)
-	cmd := exec.Command("bash", "-c", cmdStr)
+// ─── Option 10: Delete file ───────────────────────────────────────────────────
+func repoDeleteFile(dir string, reader *bufio.Reader) {
+	fmt.Print("  🗑️  File path to delete (relative to repo root) > ")
+	filePath, _ := reader.ReadString('\n')
+	filePath = strings.TrimSpace(filePath)
+	fullPath := filepath.Join(dir, filePath)
+
+	color.Yellow("  Are you sure you want to delete '%s'? (y/n)", filePath)
+	ans, _ := reader.ReadString('\n')
+	ans = strings.TrimSpace(strings.ToLower(ans))
+	if ans != "y" && ans != "yes" {
+		fmt.Println("  Cancelled.")
+		return
+	}
+	if err := os.Remove(fullPath); err != nil {
+		color.Red("✗  Could not delete: %v", err)
+	} else {
+		color.Green("✔  Deleted: %s", filePath)
+	}
+}
+
+// =============================================================================
+// SHELL HELPERS  (works on Windows AND Linux/Mac)
+// =============================================================================
+
+func shellRun(dir string, cmdStr string) error {
+	color.HiBlack("  > %s", cmdStr)
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", cmdStr)
+	} else {
+		cmd = exec.Command("bash", "-c", cmdStr)
+	}
+
 	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // CHANGE COMMAND
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 func runChangeCommand() {
 	reader := bufio.NewReader(os.Stdin)
-	color.Cyan("--- CommandSpeak Configuration ---")
+	fmt.Println()
+	color.Cyan("╔══════════════════════════════════════════════════╗")
+	color.Cyan("║       CommandSpeak — Command Configuration       ║")
+	color.Cyan("╚══════════════════════════════════════════════════╝")
+	fmt.Println()
+	color.HiBlack("  Current command templates:")
+	fmt.Println()
 
-	// List current commands
 	for intent, cmdStr := range cfg.Commands {
-		fmt.Printf("- %s:\n    %s\n", intent, cmdStr)
+		color.Yellow("  %-16s", intent)
+		color.HiBlack("    → %s", cmdStr)
 	}
-	fmt.Println("----------------------------------")
 
-	fmt.Print("\nWhich command do you want to change? (DEPLOY, PUSH, CLEAN_BRANCHES, RUN_TESTS, STATUS, UNDO, INIT, INSTALL, START, CLONE) or type 'exit': ")
+	fmt.Println()
+	fmt.Print("  Which intent to change?\n  (DEPLOY / PUSH / CLEAN_BRANCHES / RUN_TESTS / STATUS / UNDO / INIT / INSTALL / START / CLONE)\n  > ")
 	intentToChange, _ := reader.ReadString('\n')
 	intentToChange = strings.ToUpper(strings.TrimSpace(intentToChange))
 
 	if intentToChange == "EXIT" || intentToChange == "" {
-		fmt.Println("Cancelled.")
+		fmt.Println("  Cancelled.")
 		return
 	}
 
 	_, exists := cfg.Commands[intentToChange]
 	if !exists {
-		color.Red("Unknown intent '%s'.", intentToChange)
+		color.Red("✗  Unknown intent '%s'.", intentToChange)
 		return
 	}
 
-	fmt.Printf("\nCurrent command for %s is:\n%s\n", intentToChange, cfg.Commands[intentToChange])
-	fmt.Print("\nEnter new command template (use {{message}}, {{platform}}, {{repoUrl}} where applicable):\n> ")
+	fmt.Println()
+	color.Yellow("  Current template for %s:", intentToChange)
+	fmt.Printf("  %s\n", cfg.Commands[intentToChange])
+	fmt.Println()
+	color.HiBlack("  Placeholders you can use: {{message}}  {{platform}}  {{repoUrl}}")
+	fmt.Print("  New command > ")
 
 	newCmd, _ := reader.ReadString('\n')
 	newCmd = strings.TrimSpace(newCmd)
 
 	if newCmd != "" {
 		cfg.Commands[intentToChange] = newCmd
-		err := config.SaveConfig(cfg)
-		if err != nil {
-			color.Red("Error saving config: %v", err)
+		if err := config.SaveConfig(cfg); err != nil {
+			color.Red("✗  Error saving config: %v", err)
 		} else {
-			color.Green("Configuration updated successfully!")
+			color.Green("✔  Saved! '%s' will now run: %s", intentToChange, newCmd)
 		}
 	} else {
-		fmt.Println("No changes made.")
+		fmt.Println("  No changes made.")
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // INTERACTIVE MODE
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 func runInteractive() {
-	color.Cyan("Welcome to CommandSpeak! Type a sentence or 'repo' to open the repo manager (type 'exit' to quit):")
+	fmt.Println()
+	color.Cyan("╔══════════════════════════════════════════════════╗")
+	color.Cyan("║         CommandSpeak — Interactive Shell         ║")
+	color.Cyan("╠══════════════════════════════════════════════════╣")
+	color.HiBlack("║  Type a sentence or one of these shortcuts:      ║")
+	color.HiBlack("║    repo                   → open repo manager    ║")
+	color.HiBlack("║    repo <url>             → clone & manage repo  ║")
+	color.HiBlack("║    exit / quit            → close                ║")
+	color.Cyan("╚══════════════════════════════════════════════════╝")
+	fmt.Println()
+
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
-		fmt.Print("\n> ")
+		fmt.Print("> ")
 		sentence, err := reader.ReadString('\n')
 		if err != nil {
 			color.Red("Error reading input: %v", err)
@@ -391,58 +506,60 @@ func runInteractive() {
 		}
 
 		sentence = strings.TrimSpace(sentence)
-		if sentence == "exit" || sentence == "quit" {
-			fmt.Println("Goodbye!")
-			break
-		}
-		if sentence == "repo" {
-			runRepoManager("")
+
+		switch {
+		case sentence == "":
 			continue
-		}
-		// Support: `repo https://github.com/user/project` in interactive mode
-		if strings.HasPrefix(sentence, "repo ") {
+		case sentence == "exit" || sentence == "quit":
+			color.Green("Goodbye! 👋")
+			return
+		case sentence == "repo":
+			runRepoManager("")
+		case strings.HasPrefix(sentence, "repo "):
 			inlineURL := strings.TrimSpace(strings.TrimPrefix(sentence, "repo "))
 			runRepoManager(inlineURL)
-			continue
+		default:
+			processSentence(sentence)
 		}
-		if sentence == "" {
-			continue
-		}
-
-		processSentence(sentence)
 	}
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // PROCESS SENTENCE
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
 func processSentence(sentence string) {
 	intent := parser.ParseSentence(sentence)
 
 	if intent.Type == parser.IntentUnknown {
-		color.Red("Sorry, I couldn't understand that command.")
-		fmt.Println("\nHere are some supported examples you can try:")
-		fmt.Println("  - \"deploy my project to vercel\"")
-		fmt.Println("  - \"push my code with message update\"")
-		fmt.Println("  - \"clean my old branches\"")
-		fmt.Println("  - \"run my tests and build\"")
-		fmt.Println("  - \"show me my git status\"")
-		fmt.Println("  - \"undo my last commit\"")
-		fmt.Println("  - \"initialize git repository\"")
-		fmt.Println("  - \"install dependencies\"")
-		fmt.Println("  - \"start server\"")
-		fmt.Println("  - \"clone repo https://github.com/user/project\"")
-		fmt.Println("  - run 'commandspeak repo' to open the full repo manager")
+		color.Red("✗  Sorry, I couldn't understand: \"%s\"", sentence)
+		fmt.Println()
+		color.Yellow("  Try one of these:")
+		examples := []string{
+			`"deploy my project to vercel"`,
+			`"push my code with message fixed bug"`,
+			`"clean my old branches"`,
+			`"run my tests and build"`,
+			`"show me my git status"`,
+			`"undo my last commit"`,
+			`"initialize git repository"`,
+			`"install dependencies"`,
+			`"start server"`,
+			`"clone repo https://github.com/user/project"`,
+			`"repo" or "repo <url>"  ← to open the full repo manager`,
+		}
+		for _, ex := range examples {
+			fmt.Printf("    %s\n", ex)
+		}
 		return
 	}
 
 	err := executor.ExecuteIntent(intent, cfg, globalDryRun)
 	if err != nil {
-		color.Red("Error executing command: %v", err)
+		color.Red("✗  Error: %v", err)
 	} else {
 		if !intent.DryRun && !globalDryRun {
-			color.Green("Success!")
+			color.Green("✔  Done!")
 		}
 	}
 }
