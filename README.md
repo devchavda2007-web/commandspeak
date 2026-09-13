@@ -84,19 +84,23 @@ go install
 
 ## 📖 Usage Guide
 
-### 1. The Natural Language CLI
-Just type `commandspeak` followed by what you want to do:
+### 1. The Natural Language CLI (All Supported Prompts)
+Just type `commandspeak` followed by what you want to do. Here are all the natural language commands (intents) currently supported by the offline parser:
 
-```bash
-$ commandspeak "deploy my project to vercel"
-✔ Done! > git add . && git commit -m "update" && git push && vercel --prod
+| What you want to do | Example Prompt you can type | Default Command it runs |
+|---------------------|-----------------------------|-------------------------|
+| **Deploy Project** | `commandspeak "deploy my project to vercel"` | `git add . && git commit -m "update" && git push && vercel --prod` |
+| **Push Code** | `commandspeak "push my code with message fixed bug"` | `git add . && git commit -m "fixed bug" && git push` |
+| **Check Status** | `commandspeak "show me my git status"` | `git status` |
+| **Clone Repo** | `commandspeak "clone repo https://github.com/..."` | `git clone https://github.com/...` |
+| **Install Packages**| `commandspeak "install dependencies please"` | `npm install` |
+| **Start Server** | `commandspeak "start dev server"` | `npm start` |
+| **Run Tests** | `commandspeak "run my tests and build"` | `npm test && npm run build` |
+| **Undo Commit** | `commandspeak "undo my last commit"` | `git reset --soft HEAD~1` |
+| **Clean Branches** | `commandspeak "clean my old branches"` | `git fetch -p && git branch -vv ...` |
+| **Initialize Git** | `commandspeak "initialize git repository"` | `git init` |
 
-$ commandspeak "show me my git status"
-✔ Done! > git status
-
-$ commandspeak "install packages and start dev server"
-✔ Done! > npm install && npm start
-```
+> **Pro Tip:** You don't have to type these exactly! The tool uses keyword scoring, so saying `"push it"` or `"send code"` will both trigger the PUSH intent.
 
 ### 2. The Interactive Repo Manager
 Want to manage a GitHub repo interactively?
