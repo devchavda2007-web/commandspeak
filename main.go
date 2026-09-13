@@ -580,14 +580,23 @@ func processSentence(sentence string) {
 
 func runUIServer() {
 	color.Cyan("\nStarting CommandSpeak Frontend...")
-	color.HiBlack("Opening index.html directly...")
 
-	absPath, err := filepath.Abs("index.html")
+	exePath, err := os.Executable()
 	if err != nil {
-		color.Red("Failed to find index.html: %v", err)
+		color.Red("Could not determine executable path: %v", err)
 		return
 	}
-	openBrowser("file:///" + filepath.ToSlash(absPath))
+	exeDir := filepath.Dir(exePath)
+	htmlPath := filepath.Join(exeDir, "index.html")
+
+	if _, err := os.Stat(htmlPath); os.IsNotExist(err) {
+		color.Red("Could not find index.html at %s", htmlPath)
+		color.Yellow("Make sure index.html is in the same folder as commandspeak.exe")
+		return
+	}
+
+	color.HiBlack("Opening %s directly...", htmlPath)
+	openBrowser("file:///" + filepath.ToSlash(htmlPath))
 	color.Green("✔ Opened in browser successfully.")
 }
 
