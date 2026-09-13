@@ -52,8 +52,18 @@ sequenceDiagram
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation & Setup
 
+You can run CommandSpeak in two ways: either download the pre-packaged ZIP (easiest) or build it from source using Go.
+
+### Method 1: The Easiest Way (Download ZIP)
+1. Download the `CommandSpeak-Windows.zip` file directly from this repository.
+2. Extract the ZIP file into any folder on your computer.
+3. Open a terminal (PowerShell or Command Prompt) in that folder.
+4. Run commands directly! (e.g., `.\commandspeak "deploy my project"`)
+5. *(Optional)* Add the extracted folder to your system's `PATH` variable so you can run `commandspeak` from anywhere.
+
+### Method 2: Build from Source (Go Extension)
 Ensure you have [Go](https://go.dev/) installed on your machine.
 
 ```bash
