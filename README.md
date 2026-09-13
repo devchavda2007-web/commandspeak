@@ -102,29 +102,56 @@ Just type `commandspeak` followed by what you want to do. Here are all the natur
 
 > **Pro Tip:** You don't have to type these exactly! The tool uses keyword scoring, so saying `"push it"` or `"send code"` will both trigger the PUSH intent.
 
-### 2. The Interactive Repo Manager
-Want to manage a GitHub repo interactively?
+### 2. The Interactive Repo Manager (Add GitHub Repos)
+You can manage any GitHub repository natively within your terminal without opening a browser or an IDE!
 
+**How to add a repo:**
 ```bash
-$ commandspeak repo https://github.com/devchavda2007-web/commandspeak
-```
-*This opens a 10-option interactive menu to view files, edit natively, commit, push, and more.*
+# 1. Pass the URL directly to open the manager menu:
+$ commandspeak repo https://github.com/username/project
 
-### 3. The Web Dashboard (`commandspeak ui`)
-Want to see your command history or configure your settings in a beautiful GUI?
+# 2. Or just type the command and let it prompt you:
+$ commandspeak repo
+> Enter new GitHub repo URL > [Paste your link here]
+```
+Once added, it will automatically clone the repository and open a **10-option interactive menu** allowing you to:
+1. List files in the repository
+2. View a file's contents
+3. Edit a file natively (opens in Notepad/Nano)
+4. Commit and push your changes
+5. Pull latest changes
+6. Show git status
+7. Show git history (logs)
+8. List all branches
+9. Switch branches
+10. Delete a file
+
+### 3. The Web Dashboard (View History)
+Want to see every command you've ever typed or configure your settings in a beautiful GUI?
 
 ```bash
 $ commandspeak ui
 ```
-*This instantly opens the local dashboard in your web browser. No server or PHP required!*
+*This instantly opens the local dashboard (`index.html`) in your web browser. No server or PHP required!*
 
-### 4. Customizing Commands
-Want to change what command runs when you say "deploy"?
+**Inside the Web Dashboard you can:**
+- Click the **History** button to view a timeline of all your past commands.
+- Filter your history by repository.
+- Export your history as a `.sh` script or JSON file.
 
+### 4. Customizing & Personalizing Commands
+CommandSpeak is designed to fit *your* specific workflow. You can easily change what bash script executes for any given intent.
+
+**How to customize commands:**
 ```bash
 $ commandspeak change
 ```
-*This opens an interactive wizard to edit your `~/.commandspeakrc.json` file.*
+This opens an interactive terminal wizard. 
+1. It will list all currently configured intents (e.g., DEPLOY, PUSH, RUN_TESTS).
+2. It asks you which one you want to change.
+3. You can type your own custom bash command using placeholders like `{{message}}` or `{{repoUrl}}`.
+
+*(Alternatively, you can open the Web Dashboard using `commandspeak ui` and click the **Personalization** button to edit your templates, configure your default package manager (npm, yarn, pnpm), and change the UI theme!)*
 
 ---
 
