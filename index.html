@@ -1291,25 +1291,32 @@
     // Fetch CLI activity data from the Go backend API or PHP (if running on XAMPP)
     async function loadCLIActivity() {
       try {
-        // Try PHP first (XAMPP support)
-        let actRes = await fetch('api.php?action=activity').catch(() => null);
+        // Try Go server first
+        let actRes = await fetch('/api/activity').catch(() => null);
         
-        // Fallback to Go server if PHP is not available
+        // Fallback to PHP (XAMPP support) if Go API is not available (404)
         if (!actRes || !actRes.ok) {
-           actRes = await fetch('/api/activity');
+           actRes = await fetch('api.php?action=activity').catch(() => null);
         }
 
-        if (!actRes.ok) return;
+        if (!actRes || !actRes.ok) return;
+        
+        // Ensure it's actually JSON before parsing (prevents crashing if server returns raw PHP file)
+        const contentType = actRes.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+           return;
+        }
+        
         const cliEntries = await actRes.json();
         if (!Array.isArray(cliEntries) || cliEntries.length === 0) return;
 
         // Merge CLI repos into the repository list
-        let repoRes = await fetch('api.php?action=repos').catch(() => null);
+        let repoRes = await fetch('/api/repos').catch(() => null);
         if (!repoRes || !repoRes.ok) {
-           repoRes = await fetch('/api/repos');
+           repoRes = await fetch('api.php?action=repos').catch(() => null);
         }
 
-        if (repoRes.ok) {
+        if (repoRes && repoRes.ok) {
           const cliRepos = await repoRes.json();
           if (Array.isArray(cliRepos)) {
             for (const cr of cliRepos) {
