@@ -3,6 +3,7 @@
   <p><b>Terminal Velocity — Natural Language CLI Tools for Developer Workflows</b></p>
   <p><i>A Track 4 Submission for CYHI Hackathon (Team: eteranel byte)</i></p>
 
+  <p><b>🌍 Cross-Platform: Fully supports Windows, macOS, and Linux!</b></p>
   <h3><a href="https://github.com/devchavda2007-web/commandspeak/raw/main/CommandSpeak-Windows.zip">⬇️ Download CommandSpeak for Windows (.ZIP)</a></h3>
 </div>
 
@@ -56,17 +57,18 @@ sequenceDiagram
 
 You can run CommandSpeak in two ways: either download the pre-packaged ZIP (easiest) or build it from source using Go.
 
-### Method 1: The Easiest Way (Download ZIP)
-1. Download the `CommandSpeak-Windows.zip` file directly from this repository.
+### Method 1: Windows Easy Install (.ZIP)
+1. Download the `CommandSpeak-Windows.zip` file directly from the link at the top of this repository.
 2. Extract the ZIP file into any folder on your computer.
 3. Open a terminal (PowerShell or Command Prompt) in that folder.
 4. Run commands directly! (e.g., `.\commandspeak "deploy my project"`)
 5. *(Optional)* Add the extracted folder to your system's `PATH` variable so you can run `commandspeak` from anywhere.
 
-### Method 2: Build from Source (Go Extension)
+### Method 2: Build from Source (macOS, Linux, & Windows)
+Because CommandSpeak is built in Go, the source code runs perfectly on macOS and Linux (using Bash) as well as Windows (using PowerShell).
 Ensure you have [Go](https://go.dev/) installed on your machine.
 
-```cmd
+```bash
 # 1. Clone the repository
 git clone https://github.com/devchavda2007-web/commandspeak.git
 cd commandspeak
