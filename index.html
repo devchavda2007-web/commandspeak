@@ -1288,17 +1288,27 @@
       updateLiveView();
     }
 
-    // Fetch CLI activity data from the Go backend API
+    // Fetch CLI activity data from the Go backend API or PHP (if running on XAMPP)
     async function loadCLIActivity() {
       try {
-        // Only works when served via commandspeak ui (http://localhost:9922)
-        const actRes = await fetch('/api/activity');
+        // Try PHP first (XAMPP support)
+        let actRes = await fetch('api.php?action=activity').catch(() => null);
+        
+        // Fallback to Go server if PHP is not available
+        if (!actRes || !actRes.ok) {
+           actRes = await fetch('/api/activity');
+        }
+
         if (!actRes.ok) return;
         const cliEntries = await actRes.json();
         if (!Array.isArray(cliEntries) || cliEntries.length === 0) return;
 
         // Merge CLI repos into the repository list
-        const repoRes = await fetch('/api/repos');
+        let repoRes = await fetch('api.php?action=repos').catch(() => null);
+        if (!repoRes || !repoRes.ok) {
+           repoRes = await fetch('/api/repos');
+        }
+
         if (repoRes.ok) {
           const cliRepos = await repoRes.json();
           if (Array.isArray(cliRepos)) {
