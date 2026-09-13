@@ -2,6 +2,8 @@
   <h1>🚀 CommandSpeak</h1>
   <p><b>Terminal Velocity — Natural Language CLI Tools for Developer Workflows</b></p>
   <p><i>A Track 4 Submission for CYHI Hackathon (Team: eteranel byte)</i></p>
+
+  <h3><a href="https://github.com/devchavda2007-web/commandspeak/raw/main/CommandSpeak-Windows.zip">⬇️ Download CommandSpeak for Windows (.ZIP)</a></h3>
 </div>
 
 ---
