@@ -66,7 +66,7 @@ You can run CommandSpeak in two ways: either download the pre-packaged ZIP (easi
 ### Method 2: Build from Source (Go Extension)
 Ensure you have [Go](https://go.dev/) installed on your machine.
 
-```bash
+```cmd
 # 1. Clone the repository
 git clone https://github.com/devchavda2007-web/commandspeak.git
 cd commandspeak
@@ -106,7 +106,7 @@ Just type `commandspeak` followed by what you want to do. Here are all the natur
 You can manage any GitHub repository natively within your terminal without opening a browser or an IDE!
 
 **How to add a repo:**
-```bash
+```cmd
 # 1. Pass the URL directly to open the manager menu:
 $ commandspeak repo https://github.com/username/project
 
@@ -129,7 +129,7 @@ Once added, it will automatically clone the repository and open a **10-option in
 ### 3. The Web Dashboard (View History)
 Want to see every command you've ever typed or configure your settings in a beautiful GUI?
 
-```bash
+```cmd
 $ commandspeak ui
 ```
 *This instantly opens the local dashboard (`index.html`) in your web browser. No server or PHP required!*
@@ -143,7 +143,7 @@ $ commandspeak ui
 CommandSpeak is designed to fit *your* specific workflow. You can easily change what bash script executes for any given intent.
 
 **How to customize commands:**
-```bash
+```cmd
 $ commandspeak change
 ```
 This opens an interactive terminal wizard. 
