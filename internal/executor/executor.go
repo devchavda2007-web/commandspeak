@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 
+	"commandspeak/internal/activity"
 	"commandspeak/internal/config"
 	"commandspeak/internal/parser"
 
@@ -83,13 +85,42 @@ func ExecuteIntent(intent parser.ParsedIntent, cfg *config.Config, globalDryRun 
 		cmdStr = strings.ReplaceAll(cmdStr, fmt.Sprintf("{{%s}}", key), val)
 	}
 
+	// Log the execution to the JSON database
+	cwd, _ := os.Getwd()
+	repoName := filepath.Base(cwd)
+	
+	// Default to commandspeak if repo is named after the executable by mistake
+	if repoName == "" || repoName == "." {
+		repoName = "commandspeak"
+	}
+
 	if isDryRun {
 		color.HiBlack("Dry-run — would execute:")
 		color.HiBlack("  > %s", cmdStr)
+		
+		activity.Log(activity.Entry{
+			RepoName: repoName,
+			RepoPath: cwd,
+			Action:   intentName,
+			Command:  cmdStr,
+			Success:  true,
+			Message:  cmdStr + " (dry-run)",
+		})
 		return nil
 	}
 
-	return shellRun(".", cmdStr)
+	err := shellRun(".", cmdStr)
+	
+	activity.Log(activity.Entry{
+		RepoName: repoName,
+		RepoPath: cwd,
+		Action:   intentName,
+		Command:  cmdStr,
+		Success:  err == nil,
+		Message:  cmdStr,
+	})
+	
+	return err
 }
 
 // shellRun runs a command string using the correct shell for the current OS.
@@ -98,7 +129,8 @@ func shellRun(dir string, cmdStr string) error {
 
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
-		cmd = exec.Command("cmd", "/c", cmdStr)
+		// Use PowerShell instead of cmd /c to avoid quoting issues with os/exec
+		cmd = exec.Command("powershell", "-NoProfile", "-Command", cmdStr)
 	} else {
 		cmd = exec.Command("bash", "-c", cmdStr)
 	}
@@ -118,7 +150,7 @@ func confirmGitClean() bool {
 	var out []byte
 	var err error
 	if runtime.GOOS == "windows" {
-		out, err = exec.Command("cmd", "/c", "git status -s").Output()
+		out, err = exec.Command("powershell", "-NoProfile", "-Command", "git status -s").Output()
 	} else {
 		out, err = exec.Command("bash", "-c", "git status -s").Output()
 	}
