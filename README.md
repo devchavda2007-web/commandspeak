@@ -14,7 +14,8 @@ No more googling obscure git flags or memorizing exact bash scripts. Just speak 
 
 - 🧠 **Natural Language Parsing:** Say `"push code to vercel"`, `"deploy my project"`, or `"clean my old branches"`. The built-in keyword scoring engine instantly figures out your intent.
 - 📦 **Interactive Repo Manager:** Run `commandspeak repo` to launch a fully interactive TUI (Terminal User Interface). Browse files, edit in Nano/Notepad, commit, push, pull, and branch—without leaving the menu.
-- 🖥️ **Offline Web Dashboard:** Run `commandspeak ui` to pop open a sleek web UI showing your command history and settings. Data is stored safely in your browser's local storage.
+- 🖥️ **Real-Time Web Dashboard:** Run `commandspeak ui` to pop open a sleek web UI served over a local Go API server. It automatically tracks every CLI command you execute. 
+- 🌐 **Native XAMPP Support:** Host the UI on XAMPP! The included `api.php` acts as a secure bridge, allowing the web frontend to read your CLI database automatically.
 - 🛡️ **Git Safety Confirmations:** Before pushing or deploying, it checks your `git status`. If you have uncommitted changes, it warns you before making a mess.
 - 🔍 **Dry-Run Mode:** Add `--dry-run` or say `"show me how to deploy"` to see exactly what bash command would run without actually executing it.
 
@@ -22,32 +23,29 @@ No more googling obscure git flags or memorizing exact bash scripts. Just speak 
 
 ## 🗺️ How It Works (The Complete Flow)
 
-Here is the exact lifecycle of how a single English sentence becomes a safely executed terminal command:
+Here is the exact lifecycle of how a single English sentence becomes a safely executed terminal command and updates your frontend dashboard:
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI as CommandSpeak (Go)
     participant NLP as Local Parser
-    participant Config as ~/.commandspeakrc
+    participant DB as ~/.commandspeak-activity.json
     participant Shell as Bash/CMD
     participant UI as Web Dashboard
 
     User->>CLI: types "deploy my project to vercel"
     CLI->>NLP: Sends string to Keyword Engine
     NLP-->>CLI: Returns Intent: DEPLOY
-    CLI->>Config: Looks up shell template for DEPLOY
-    Config-->>CLI: "git push && vercel --prod"
     
-    CLI->>Shell: Check 'git status' for safety
-    Shell-->>CLI: Clean working tree
-    
-    CLI->>Shell: Execute: git push && vercel --prod
+    CLI->>Shell: Execute: git add . && git push && vercel --prod
     Shell-->>User: Deployment successful!
 
-    User->>CLI: types "commandspeak ui"
-    CLI->>UI: Opens index.html locally
-    UI->>User: Displays full interaction history (LocalStorage)
+    CLI->>DB: Logs exact timestamp, command, and success status
+    
+    UI->>DB: Auto-polls every 2 seconds via API / api.php
+    DB-->>UI: Returns new CLI activity
+    UI->>User: Visually displays new command in History with "CLI" badge
 ```
 
 ---
