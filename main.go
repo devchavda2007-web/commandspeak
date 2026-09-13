@@ -2,13 +2,16 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"commandspeak/internal/activity"
 	"commandspeak/internal/config"
 	"commandspeak/internal/executor"
 	"commandspeak/internal/parser"
@@ -25,6 +28,11 @@ func main() {
 	cfg, err = config.LoadConfig()
 	if err != nil {
 		color.Yellow("Warning: Failed to load config: %v", err)
+		color.Yellow("Using default configuration.")
+		cfg = config.DefaultConfig()
+	}
+	if cfg == nil {
+		cfg = config.DefaultConfig()
 	}
 
 	// ─── Root command ─────────────────────────────────────────────────────────
@@ -182,11 +190,14 @@ func runRepoManager(initialURL string) {
 		if err := shellRun(".", fmt.Sprintf("git clone %s", repoURL)); err != nil {
 			color.Red("✗  Clone failed: %v", err)
 			color.HiBlack("   Make sure the URL is correct and git is installed.")
+			activity.Log(activity.Entry{RepoURL: repoURL, RepoName: repoName, RepoPath: cloneDir, Action: "clone", Command: fmt.Sprintf("git clone %s", repoURL), Success: false, Message: "clone failed"})
 			return
 		}
 		color.Green("✔  Cloned successfully into: %s", cloneDir)
+		activity.Log(activity.Entry{RepoURL: repoURL, RepoName: repoName, RepoPath: cloneDir, Action: "clone", Command: fmt.Sprintf("git clone %s", repoURL), Success: true, Message: "cloned"})
 	} else {
 		color.Green("✔  Repo already exists at: %s  (skipping clone)", cloneDir)
+		activity.Log(activity.Entry{RepoURL: repoURL, RepoName: repoName, RepoPath: cloneDir, Action: "open", Command: "open existing", Success: true, Message: "opened existing repo"})
 	}
 
 	// ── STEP 4: Interactive Menu ──────────────────────────────────────────────
@@ -334,10 +345,52 @@ func repoEditFile(dir string, reader *bufio.Reader) {
 		color.Red("✗  Could not open editor: %v", err)
 		color.HiBlack("   File is at: %s  — edit it manually.", fullPath)
 	}
+
+	// Auto-stage the edited file so "Commit & Push" picks it up
+	color.Cyan("  Auto-staging %s ...", filePath)
+	if err := shellRun(dir, fmt.Sprintf("git add %s", filePath)); err != nil {
+		color.Yellow("  ⚠  Could not auto-stage file (not a git repo?)")
+	} else {
+		color.Green("✔  File staged. Use option 4 (Commit & Push) to save your changes.")
+	}
+
+	// Log activity
+	repoName := filepath.Base(dir)
+	activity.Log(activity.Entry{
+		RepoName: repoName,
+		RepoPath: dir,
+		Action:   "edit",
+		Command:  fmt.Sprintf("edit %s", filePath),
+		Success:  true,
+		Message:  fmt.Sprintf("Edited file: %s", filePath),
+	})
 }
 
 // ─── Option 4: Commit & Push ──────────────────────────────────────────────────
 func repoCommitAndPush(dir string, reader *bufio.Reader) {
+	// 1. Check git config is set (common reason commits silently fail)
+	if !checkGitConfig(dir) {
+		color.Yellow("  Git user.name or user.email is not configured for this repo.")
+		fmt.Print("  Enter your name (e.g. Dev Chavda): ")
+		name, _ := reader.ReadString('\n')
+		name = strings.TrimSpace(name)
+		if name != "" {
+			shellRun(dir, fmt.Sprintf(`git config user.name "%s"`, name))
+		}
+		fmt.Print("  Enter your email: ")
+		email, _ := reader.ReadString('\n')
+		email = strings.TrimSpace(email)
+		if email != "" {
+			shellRun(dir, fmt.Sprintf(`git config user.email "%s"`, email))
+		}
+	}
+
+	// 2. Show what changed first
+	color.Cyan("  Current changes:")
+	shellRun(dir, "git status -s")
+	fmt.Println()
+
+	// 3. Get commit message
 	fmt.Print("  🚀 Commit message > ")
 	msg, _ := reader.ReadString('\n')
 	msg = strings.TrimSpace(msg)
@@ -345,26 +398,83 @@ func repoCommitAndPush(dir string, reader *bufio.Reader) {
 		msg = "update via CommandSpeak"
 	}
 
+	// 4. Sanitize message for shell safety (remove quotes that break cmd /c)
+	msg = strings.ReplaceAll(msg, `"`, `'`)
+	msg = strings.ReplaceAll(msg, "`", "'")
+	msg = strings.ReplaceAll(msg, "&", "and")
+	msg = strings.ReplaceAll(msg, "|", "-")
+
+	// 5. Stage all changes
 	color.Cyan("  Staging all changes...")
-	if err := shellRun(dir, "git add ."); err != nil {
+	if err := shellRun(dir, "git add -A"); err != nil {
 		color.Red("✗  git add failed: %v", err)
+		activity.Log(activity.Entry{RepoPath: dir, Action: "commit", Command: "git add -A", Success: false, Message: "staging failed"})
 		return
 	}
 
+	// 6. Commit — run each step separately to avoid && parsing issues on Windows
 	color.Cyan("  Committing...")
-	commitCmd := fmt.Sprintf(`git commit -m "%s"`, msg)
-	if err := shellRun(dir, commitCmd); err != nil {
-		color.Yellow("  Nothing new to commit, or commit failed.")
+	commitErr := shellRun(dir, fmt.Sprintf(`git commit -m "%s"`, msg))
+	if commitErr != nil {
+		color.Yellow("  ⚠  Nothing new to commit, or commit failed.")
+		color.HiBlack("  (If you haven't changed any files, there's nothing to commit.)")
+		activity.Log(activity.Entry{RepoPath: dir, Action: "commit", Command: fmt.Sprintf(`git commit -m "%s"`, msg), Success: false, Message: "no changes or commit failed"})
 		return
 	}
+	color.Green("✔  Committed successfully!")
 
+	// 7. Push — handle fork scenario
 	color.Cyan("  Pushing...")
-	if err := shellRun(dir, "git push"); err != nil {
-		color.Red("✗  Push failed. You may not have write access to this repo.")
-		color.HiBlack("   If this is someone else's repo, fork it on GitHub first.")
+	pushErr := shellRun(dir, "git push")
+	if pushErr != nil {
+		color.Red("✗  Push failed!")
+		color.Yellow("")
+		color.Yellow("  This usually happens when you cloned someone else's repo.")
+		color.Yellow("  If you FORKED this repo on GitHub, you need to update the remote URL.")
+		fmt.Println()
+		fmt.Print("  Enter YOUR fork URL (or press Enter to skip): ")
+		forkURL, _ := reader.ReadString('\n')
+		forkURL = strings.TrimSpace(forkURL)
+
+		if forkURL != "" {
+			color.Cyan("  Updating remote origin to: %s", forkURL)
+			shellRun(dir, fmt.Sprintf("git remote set-url origin %s", forkURL))
+			color.Cyan("  Retrying push...")
+			retryErr := shellRun(dir, "git push -u origin HEAD")
+			if retryErr != nil {
+				color.Red("✗  Push still failed. Check your fork URL and GitHub permissions.")
+				activity.Log(activity.Entry{RepoPath: dir, Action: "push", Command: "git push (fork retry)", Success: false, Message: "push to fork failed"})
+			} else {
+				color.Green("✔  Pushed to your fork successfully!")
+				activity.Log(activity.Entry{RepoPath: dir, RepoURL: forkURL, Action: "push", Command: "git push -u origin HEAD", Success: true, Message: msg})
+			}
+		} else {
+			color.HiBlack("  Skipped. Your commit is saved locally. You can push later with 'git push'.")
+			activity.Log(activity.Entry{RepoPath: dir, Action: "push", Command: "git push", Success: false, Message: "push failed - no fork URL provided"})
+		}
 	} else {
 		color.Green("✔  Changes pushed successfully!")
+		activity.Log(activity.Entry{RepoPath: dir, Action: "push", Command: "git push", Success: true, Message: msg})
 	}
+}
+
+// checkGitConfig returns true if git user.name and user.email are set.
+func checkGitConfig(dir string) bool {
+	cmd1 := exec.Command("git", "config", "user.name")
+	cmd1.Dir = dir
+	out1, err1 := cmd1.Output()
+	if err1 != nil || strings.TrimSpace(string(out1)) == "" {
+		return false
+	}
+
+	cmd2 := exec.Command("git", "config", "user.email")
+	cmd2.Dir = dir
+	out2, err2 := cmd2.Output()
+	if err2 != nil || strings.TrimSpace(string(out2)) == "" {
+		return false
+	}
+
+	return true
 }
 
 // ─── Option 9: Switch repo URL ────────────────────────────────────────────────
@@ -579,7 +689,7 @@ func processSentence(sentence string) {
 // =============================================================================
 
 func runUIServer() {
-	color.Cyan("\nStarting CommandSpeak Frontend...")
+	color.Cyan("\nStarting CommandSpeak Frontend Server...")
 
 	exePath, err := os.Executable()
 	if err != nil {
@@ -590,14 +700,64 @@ func runUIServer() {
 	htmlPath := filepath.Join(exeDir, "index.html")
 
 	if _, err := os.Stat(htmlPath); os.IsNotExist(err) {
-		color.Red("Could not find index.html at %s", htmlPath)
-		color.Yellow("Make sure index.html is in the same folder as commandspeak.exe")
-		return
+		// Try current directory as fallback
+		cwd, _ := os.Getwd()
+		htmlPath = filepath.Join(cwd, "index.html")
+		if _, err := os.Stat(htmlPath); os.IsNotExist(err) {
+			color.Red("Could not find index.html")
+			color.Yellow("Make sure index.html is in the same folder as commandspeak.exe or the current directory")
+			return
+		}
+		exeDir = cwd
 	}
 
-	color.HiBlack("Opening %s directly...", htmlPath)
-	openBrowser("file:///" + filepath.ToSlash(htmlPath))
-	color.Green("✔ Opened in browser successfully.")
+	// Serve static files from exe directory
+	fs := http.FileServer(http.Dir(exeDir))
+	http.Handle("/", fs)
+
+	// API: Get all activity entries (CLI history)
+	http.HandleFunc("/api/activity", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		entries, err := activity.GetAll()
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(entries)
+	})
+
+	// API: Get tracked repos from CLI activity
+	http.HandleFunc("/api/repos", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		repos, err := activity.GetRepos()
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(repos)
+	})
+
+	port := "9922"
+	serverURL := fmt.Sprintf("http://localhost:%s", port)
+
+	color.Green("✔  Server running at: %s", serverURL)
+	color.HiBlack("   Serving files from: %s", exeDir)
+	color.HiBlack("   API endpoints:")
+	color.HiBlack("     GET /api/activity  — CLI activity history")
+	color.HiBlack("     GET /api/repos     — Tracked repositories")
+	color.Yellow("   Press Ctrl+C to stop the server.")
+	fmt.Println()
+
+	// Open browser
+	openBrowser(serverURL)
+
+	// Start HTTP server (blocks)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		color.Red("Server error: %v", err)
+		color.Yellow("Port %s may be in use. Try closing other instances.", port)
+	}
 }
 
 func openBrowser(url string) {
@@ -617,3 +777,4 @@ func openBrowser(url string) {
 		color.White("Please open: %s", url)
 	}
 }
+

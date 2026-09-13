@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -34,10 +35,13 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// Return default config if file does not exist
-			return createDefaultConfig(), nil
+			return DefaultConfig(), nil
 		}
 		return nil, err
 	}
+
+	// Strip UTF-8 BOM if present (PowerShell sometimes adds this)
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
 	var cfg Config
 	err = json.Unmarshal(data, &cfg)
@@ -47,10 +51,10 @@ func LoadConfig() (*Config, error) {
 
 	// Ensure the commands map is initialized if missing
 	if cfg.Commands == nil {
-		cfg.Commands = createDefaultConfig().Commands
+		cfg.Commands = DefaultConfig().Commands
 	} else {
 		// Fill in new default commands if they don't exist yet for existing users
-		defaults := createDefaultConfig().Commands
+		defaults := DefaultConfig().Commands
 		for k, v := range defaults {
 			if _, exists := cfg.Commands[k]; !exists {
 				cfg.Commands[k] = v
@@ -76,7 +80,8 @@ func SaveConfig(cfg *Config) error {
 	return os.WriteFile(configPath, data, 0644)
 }
 
-func createDefaultConfig() *Config {
+// DefaultConfig returns the default configuration with all intents populated.
+func DefaultConfig() *Config {
 	return &Config{
 		DefaultDeployPlatform: "vercel",
 		ProjectPath:           ".",

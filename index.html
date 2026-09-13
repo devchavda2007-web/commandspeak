@@ -1278,11 +1278,88 @@
       repositories  = (await dbGet('commandspeak_repos')) || INITIAL_REPOSITORIES;
       historyList   = (await dbGet('commandspeak_history')) || INITIAL_HISTORY;
       activeRepoId  = repositories.find(r => r.active)?.id || repositories[0]?.id || "repo-1";
+
+      // Load CLI activity from backend API (when served via commandspeak ui)
+      await loadCLIActivity();
+
       renderRepoSelectors();
       commandInput.value = "deploy my project to vercel";
       applyTheme(userConfig.theme || 'dark');
       updateLiveView();
     }
+
+    // Fetch CLI activity data from the Go backend API
+    async function loadCLIActivity() {
+      try {
+        // Only works when served via commandspeak ui (http://localhost:9922)
+        const actRes = await fetch('/api/activity');
+        if (!actRes.ok) return;
+        const cliEntries = await actRes.json();
+        if (!Array.isArray(cliEntries) || cliEntries.length === 0) return;
+
+        // Merge CLI repos into the repository list
+        const repoRes = await fetch('/api/repos');
+        if (repoRes.ok) {
+          const cliRepos = await repoRes.json();
+          if (Array.isArray(cliRepos)) {
+            for (const cr of cliRepos) {
+              const exists = repositories.find(r => r.name === cr.name);
+              if (!exists) {
+                const newRepo = {
+                  id: "cli-repo-" + cr.name,
+                  name: cr.name,
+                  path: cr.path || cr.url || "",
+                  active: false
+                };
+                repositories.push(newRepo);
+              }
+            }
+            dbSetSync('commandspeak_repos', repositories);
+          }
+        }
+
+        // Merge CLI activity entries into history (avoid duplicates by ID)
+        const existingIds = new Set(historyList.map(h => h.id));
+        let addedNew = false;
+        
+        for (const entry of cliEntries) {
+          if (existingIds.has(entry.id)) continue;
+          // Find matching repo
+          const matchRepo = repositories.find(r => r.name === entry.repoName) || repositories[0];
+          const histEntry = {
+            id: entry.id || ("cli-" + Date.now() + Math.random()),
+            repoId: matchRepo ? matchRepo.id : activeRepoId,
+            query: entry.message || entry.action,
+            intent: (entry.action || "CLI").toUpperCase(),
+            cmd: entry.command || "",
+            timestamp: entry.timestamp || new Date().toISOString(),
+            dryRun: false,
+            fromCLI: true,
+            success: entry.success
+          };
+          historyList.unshift(histEntry);
+          addedNew = true;
+        }
+        
+        if (addedNew) {
+          dbSetSync('commandspeak_history', historyList);
+          activeRepoId = repositories.find(r => r.active)?.id || repositories[0]?.id || "repo-1";
+          
+          // Re-render if modal is open
+          if (document.getElementById('historyModal').classList.contains('open')) {
+            renderRepoSelectors();
+            renderHistoryModal();
+          } else {
+            renderRepoSelectors(); // Update badges even if closed
+          }
+        }
+      } catch (e) {
+        // Silently fail — file:// mode or server not running
+      }
+    }
+
+    // Periodically poll for CLI activity (e.g. every 2 seconds) to sync the 'database'
+    setInterval(loadCLIActivity, 2000);
 
     // --- 3. NATURAL LANGUAGE PARSER ENGINE ---
     function parseSentence(sentence) {
@@ -1700,6 +1777,9 @@
             <span style="display: flex; align-items: center; gap: 0.4rem;">
               <span class="badge badge-intent" style="font-size: 0.7rem;">${item.intent}</span>
               ${item.dryRun ? '<span class="badge" style="font-size: 0.7rem; background: #334155; color: #cbd5e1;">Dry Run</span>' : ''}
+              ${item.fromCLI ? '<span class="badge" style="font-size: 0.7rem; background: rgba(139, 92, 246, 0.15); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.3);">CLI</span>' : ''}
+              ${item.success === false ? '<span class="badge" style="font-size: 0.7rem; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3);">Failed</span>' : ''}
+              ${item.success === true ? '<span class="badge" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3);">✔ OK</span>' : ''}
             </span>
             <span title="${exactTime}">${timeFormatted}</span>
           </div>
