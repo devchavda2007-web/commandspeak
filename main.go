@@ -580,26 +580,15 @@ func processSentence(sentence string) {
 
 func runUIServer() {
 	color.Cyan("\nStarting CommandSpeak Frontend...")
+	color.HiBlack("Opening index.html directly...")
 
-	// Try starting PHP server
-	phpCmd := exec.Command("php", "-S", "localhost:8080")
-	phpCmd.Stdout = os.Stdout
-	phpCmd.Stderr = os.Stderr
-
-	err := phpCmd.Start()
+	absPath, err := filepath.Abs("index.html")
 	if err != nil {
-		color.Yellow("\n[WARNING] PHP not found or failed to start.")
-		color.Yellow("Falling back to static mode (localStorage).")
-		color.HiBlack("Opening index.html directly...")
-		openBrowser("index.html")
+		color.Red("Failed to find index.html: %v", err)
 		return
 	}
-
-	color.Green("PHP is installed. Private SQLite backend running on localhost:8080!")
-	color.Yellow("Press Ctrl+C in this terminal to stop the server.\n")
-
-	openBrowser("http://localhost:8080/index.html")
-	phpCmd.Wait()
+	openBrowser("file:///" + filepath.ToSlash(absPath))
+	color.Green("✔ Opened in browser successfully.")
 }
 
 func openBrowser(url string) {

@@ -1246,53 +1246,18 @@
     };
 
     // ─────────────────────────────────────────────────────────────────────────
-    // PRIVATE STORAGE LAYER
-    // When running via php -S localhost (or any local PHP server), all data is
-    // stored in private_local_data.sqlite on YOUR machine only.
+    // PRIVATE STORAGE LAYER (Pure Static / LocalStorage)
+    // Data is strictly stored in your browser's localStorage. 
     // It NEVER touches GitHub, cloud sync, or other developers' machines.
-    // When opened as a plain file:// (no PHP server), gracefully falls back to
-    // browser localStorage so the app still works.
     // ─────────────────────────────────────────────────────────────────────────
-    const IS_LOCAL_PHP = window.location.protocol === 'http:' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-    const DB_API = './api.php';
-
-    async function dbGet(key, fallback = null) {
-      if (IS_LOCAL_PHP) {
-        try {
-          const res = await fetch(`${DB_API}?key=${encodeURIComponent(key)}`);
-          const text = await res.text();
-          if (text === 'null' || !text) return fallback;
-          return JSON.parse(text);
-        } catch(e) { /* server down — fall through */ }
-      }
-      // Fallback: localStorage
+    function dbGet(key, fallback = null) {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
     }
 
-    async function dbSet(key, value) {
-      if (IS_LOCAL_PHP) {
-        try {
-          await fetch(DB_API, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key, value: JSON.stringify(value) })
-          });
-          return;
-        } catch(e) { /* server down — fall through */ }
-      }
-      // Fallback: localStorage
-      localStorage.setItem(key, JSON.stringify(value));
-    }
-
-    // Synchronous shim for code that cannot easily be made async
     function dbSetSync(key, value) {
-      // Always mirror to localStorage as immediate sync cache
       localStorage.setItem(key, JSON.stringify(value));
-      // Also fire async write to SQLite (don't await — fire-and-forget)
-      dbSet(key, value).catch(() => {});
     }
 
     // ── Bootstrap: load data from DB (async IIFE) ─────────────────────────────
@@ -1317,7 +1282,6 @@
       commandInput.value = "deploy my project to vercel";
       applyTheme(userConfig.theme || 'dark');
       updateLiveView();
-      if (IS_LOCAL_PHP) showToast("🔒 Private SQLite DB active!");
     }
 
     // --- 3. NATURAL LANGUAGE PARSER ENGINE ---
